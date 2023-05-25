@@ -1,0 +1,168 @@
+---
+title: "Data exploration"
+author: "Remo Schmutz"
+date: "2023-05-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(pacman)) install.packages("pacman")
+
+pacman:: p_load(
+  tidyverse,
+  haven,
+  here,
+  janitor,
+  inspectdf
+  
+)
+
+```
+
+#### This document summarizes the data exploration and is intended to serve as an overview of the Swiss cohort data.
+
+```{r data import, echo=FALSE}
+#These are the two datasets which include the most important informations
+shcs_509_hivall <- read_dta(here("data_clean/shcs_509_hivall.dta"))
+shcs_509_tbcases <- read_dta(here("data_clean/shcs_509_tbcases.dta"))
+lab <- read_dta(here("data_raw/lab.dta"))
+
+```
+
+## Selection of the study population [complete] (Figure 1).
+
+#### The study includes a total of 5,044 patients. This number is different from the previous count of ART eligible patients (5,058) because it excludes patients from the year 2023 and those who are under the age of 16 years.
+
+```{r study population complete}
+n_complete <- shcs_509_hivall %>% 
+  filter(regdate <=as.Date("2022-12-31"),
+        year(art_start_date) - born >= 16,
+        art_start_date <=as.Date("2022-12-31"),
+        art_start_date >=as.Date("2010-01-01"),
+        !is.na(sex),
+        !is.na(born),
+        is.na(exitdate) | exitdate >= art_start_date) %>% 
+   mutate(age_at_ART_start = year(art_start_date)-born)
+
+#the number of patients which can be included (5044) varies from the number of patients which are eligibility_ART = 1 (5058) according to the dataset I received. I will now try to identify them and find out what the reasons are.
+
+eligibility_art <- shcs_509_hivall %>%
+  filter(eligibility_art ==1) #those are all the patients which are art eligible according to the dataset.
+
+ids_only_in_df1 <- setdiff(eligibility_art$id, n_complete$id) 
+ids_only_in_df1 <- unlist(ids_only_in_df1) #those are all the patiens who are art eligible but not according to the procedure above.
+
+check_ids <- shcs_509_hivall %>% # I will now apply one filter after another to check where they fall out of the filtering system.
+  filter(id %in% ids_only_in_df1,
+         regdate <=as.Date("2022-12-31"),#Two were registred in 2023
+         year(art_start_date) - born >= 16) #The rest was removed here
+
+#This means I will keep 5,044 as the number of patients included in the study.
+```
+
+## Selection of the study population [TB only] (Figure 2).
+
+#### The study includes a total of 75 patients which were HIV/TB co-infected. 
+
+```{r study population TB}
+n_tb <-  shcs_509_hivall %>% 
+  filter(disease_tb == 1,
+  regdate <= as.Date("2022-12-31"),
+  year(art_start_date) - born >= 16, #two patients excluded
+  art_start_date <=as.Date("2022-12-31"),
+  art_start_date >=as.Date("2010-01-01"),
+  !is.na(sex),
+  !is.na(born),
+  is.na(exitdate) | exitdate >= art_start_date) %>% 
+  mutate(age_at_ART_start = year(art_start_date)-born)
+```
+
+```{r study population non-TB}
+n_not_tb <- n_complete %>% 
+  filter(disease_tb == 0)
+```
+
+## Exploration of the study population (Table 1)
+```{r exploration}
+##define functions
+
+###age
+calculate_age_quantiles <- function(data) {
+  data %>%
+    summarize("25quantil" = quantile(age_at_ART_start, 0.25),
+              "50quantil" = quantile(age_at_ART_start, 0.5),
+              "75quantil" = quantile(age_at_ART_start, 0.75))
+}
+
+###gender
+calculate_gender_proportions <- function(data) {
+  data %>%
+    group_by(sex) %>%
+    summarise(count = n()) %>%
+    mutate(proportion = count / sum(count))
+}
+
+###type of TB
+calculate_type_of_TB <- function(dara) {
+  data %>%
+    mutate(type_tb_shcs = ifelse(type_tb_shcs == 3, 1, type_tb_shcs)) %>% # 1 and 3 are both pulmonary
+    group_by(type_tb_shcs) %>%
+    summarize(count = n()) %>%
+    filter(!is.na(type_tb_shcs)) %>%
+    mutate(proportion = count / sum(count))
+}
+
+##baseline cd4 count
+calculate_cd4_quantiles_and_na_count <- function(data) {
+  cd4_quantiles <- quantile(data$art_start_cd4, c(0.25, 0.5, 0.75), na.rm = TRUE)
+  na_count <- sum(!is.na(data$art_start_cd4))
+  list(quantiles = cd4_quantiles, na_count = na_count)
+}
+
+##baseline hiv-rna count
+calculate_rna_quantiles_and_na_count <- function(data, lab_data) {
+  merged_data <- right_join(lab_data, data, by = "id") %>%
+    select(id, art_start_date, rna, labdate) %>%
+    mutate(rna_at_art_start = if_else(art_start_date == labdate, rna, NA)) %>%
+    group_by(id) %>%
+    filter(!is.na(rna_at_art_start) | all(is.na(rna_at_art_start))) %>%
+    distinct(id, .keep_all = TRUE)
+  
+  rna_quantiles <- quantile(merged_data$rna_at_art_start, c(0.25, 0.5, 0.75), na.rm = TRUE)
+  na_count <- sum(!is.na(merged_data$rna_at_art_start))
+  list(quantiles = rna_quantiles, na_count = na_count)
+}
+
+# Complete study population
+age_at_ART_start_complete <- calculate_age_quantiles(n_complete)
+gender_proportions_complete <- calculate_gender_proportions(n_complete)
+cd4_quantiles_and_na_count_complete <- calculate_cd4_quantiles_and_na_count(n_complete)
+rna_quantiles_and_na_count_complete <- calculate_rna_quantiles_and_na_count(n_complete, lab)
+
+# TB study population
+age_at_ART_start_tb <- calculate_age_quantiles(n_tb)
+gender_proportions_tb <- calculate_gender_proportions(n_tb)
+cd4_quantiles_and_na_count_tb <- calculate_cd4_quantiles_and_na_count(n_tb)
+rna_quantiles_and_na_count_tb <- calculate_rna_quantiles_and_na_count(n_tb, lab)
+
+# Not TB study population
+age_at_ART_start_nottb <- calculate_age_quantiles(n_not_tb)
+gender_proportions_nottb <- calculate_gender_proportions(n_not_tb)
+cd4_quantiles_and_na_count_nottb <- calculate_cd4_quantiles_and_na_count(n_not_tb)
+rna_quantiles_and_na_count_nottb <- calculate_rna_quantiles_and_na_count(n_not_tb, lab)
+```
+
+## Exploration of the TB study population (Table 2)
+
+```{r TB population}
+n_tb <- n_tb %>% 
+  mutate(age_tb = year(date_tb) - born)
+
+custom_breaks <- c(16, 24, 34, 44, 100)
+
+n_tb %>%
+  mutate(agegroups = cut(age_tb, breaks = custom_breaks, include.lowest = TRUE)) %>%
+  count(agegroups)
+```
