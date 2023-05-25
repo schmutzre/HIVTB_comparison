@@ -18,25 +18,26 @@ pacman:: p_load(
   inspectdf
   
 )
-
 ```
 
-#### This document summarizes the data exploration and is intended to serve as an overview of the Swiss cohort data.
+This document summarizes the data exploration and is intended to serve as an overview of the Swiss cohort data.
 
 ```{r data import, echo=FALSE}
 #These are the two datasets which include the most important informations
-shcs_509_hivall <- read_dta(here("data_clean/shcs_509_hivall.dta"))
-shcs_509_tbcases <- read_dta(here("data_clean/shcs_509_tbcases.dta"))
+shcs_509_hivall <- read_dta(here("data_raw/shcs_509_hivall.dta"))
+shcs_509_tbcases <- read_dta(here("data_raw/shcs_509_tbcases.dta")) 
 lab <- read_dta(here("data_raw/lab.dta"))
+dis <- read_dta(here("data_raw/dis.dta"))
+var_disease <- read_dta(here("data_raw/var_disease.dta"))
 
 ```
 
 ## Selection of the study population [complete] (Figure 1).
 
-#### The study includes a total of 5,044 patients. This number is different from the previous count of ART eligible patients (5,058) because it excludes patients from the year 2023 and those who are under the age of 16 years.
+The study includes a total of 5,044 patients. This number is different from the previous count of ART eligible patients (5,058) because it excludes patients from the year 2023 and those who are under the age of 16 years.
 
 ```{r study population complete}
-n_complete <- shcs_509_hivall %>% 
+studypopulation_complete <- shcs_509_hivall %>% 
   filter(regdate <=as.Date("2022-12-31"),
         year(art_start_date) - born >= 16,
         art_start_date <=as.Date("2022-12-31"),
@@ -45,6 +46,8 @@ n_complete <- shcs_509_hivall %>%
         !is.na(born),
         is.na(exitdate) | exitdate >= art_start_date) %>% 
    mutate(age_at_ART_start = year(art_start_date)-born)
+
+saveRDS(studypopulation_complete, here("data_clean/studypopulation_complete.rds"))
 
 #the number of patients which can be included (5044) varies from the number of patients which are eligibility_ART = 1 (5058) according to the dataset I received. I will now try to identify them and find out what the reasons are.
 
@@ -64,10 +67,10 @@ check_ids <- shcs_509_hivall %>% # I will now apply one filter after another to 
 
 ## Selection of the study population [TB only] (Figure 2).
 
-#### The study includes a total of 75 patients which were HIV/TB co-infected. 
+The study includes a total of 75 patients which were HIV/TB co-infected.
 
 ```{r study population TB}
-n_tb <-  shcs_509_hivall %>% 
+studypopulation_tb <-  shcs_509_hivall %>% 
   filter(disease_tb == 1,
   regdate <= as.Date("2022-12-31"),
   year(art_start_date) - born >= 16, #two patients excluded
@@ -77,14 +80,21 @@ n_tb <-  shcs_509_hivall %>%
   !is.na(born),
   is.na(exitdate) | exitdate >= art_start_date) %>% 
   mutate(age_at_ART_start = year(art_start_date)-born)
+
+saveRDS(studypopulation_tb, here("data_clean/studypopulation_tb.rds"))
+
 ```
 
 ```{r study population non-TB}
-n_not_tb <- n_complete %>% 
+studypopulation_not_tb <- n_complete %>% 
   filter(disease_tb == 0)
+
+saveRDS(studypopulation_not_tb, here("data_clean/studypopulation_nottb.rds"))
+
 ```
 
 ## Exploration of the study population (Table 1)
+
 ```{r exploration}
 ##define functions
 
@@ -123,46 +133,94 @@ calculate_cd4_quantiles_and_na_count <- function(data) {
 
 ##baseline hiv-rna count
 calculate_rna_quantiles_and_na_count <- function(data, lab_data) {
-  merged_data <- right_join(lab_data, data, by = "id") %>%
-    select(id, art_start_date, rna, labdate) %>%
-    mutate(rna_at_art_start = if_else(art_start_date == labdate, rna, NA)) %>%
-    group_by(id) %>%
-    filter(!is.na(rna_at_art_start) | all(is.na(rna_at_art_start))) %>%
-    distinct(id, .keep_all = TRUE)
+  merged_data <- left_join(data, lab, by = "id") %>%
+  select(id, art_start_date, rna, labdate) %>%
+  mutate(rna = ifelse(labdate >= (art_start_date - 180) & labdate <= (art_start_date + 30), rna, NA)) %>%
+  arrange(abs(art_start_date - labdate)) %>%
+  group_by(id) %>%
+  distinct(id, .keep_all = TRUE)
   
-  rna_quantiles <- quantile(merged_data$rna_at_art_start, c(0.25, 0.5, 0.75), na.rm = TRUE)
-  na_count <- sum(!is.na(merged_data$rna_at_art_start))
-  list(quantiles = rna_quantiles, na_count = na_count)
+  rna_quantiles <- quantile(merged_data$rna, c(0.25, 0.5, 0.75), na.rm = TRUE)
+  not_na_count <- sum(!is.na(merged_data$rna))
+  na_count <- sum(is.na(merged_data$rna))
+  list(quantiles = rna_quantiles, not_na_count = not_na_count, na_count = na_count)
+}
+
+#question: there are several patients with rna = 0. Is this possible or NA?
+
+ids_only_in_n_complete <- setdiff(studypopulation_complete$id, lab$id) #35 ids don't have lab data
+length(ids_only_in_n_complete)
+##who clinical stage
+disease <- left_join(dis, var_disease, by = "disease") %>% 
+  select(id, newdate, disease, cdc_group) %>% 
+  mutate(cdc_group = ifelse(cdc_group =="D", "C", cdc_group))#D is C if it is definitif (SHCS Variables Document)
+  
+calculate_who_stages <- function(data) {
+  merged_data <- left_join(data, disease, by = "id") %>%
+  select(id, art_start_date, newdate, disease, cdc_group) %>%
+  group_by(id) %>%
+  mutate(cdc_group =  
+  ifelse(newdate <= (art_start_date + 30), cdc_group, NA)) %>%
+  arrange(abs(art_start_date - newdate)) %>%
+  distinct(id, .keep_all = TRUE) %>% 
+   mutate(who_stage = case_when(
+     cdc_group == "A" ~ 1,
+     cdc_group == "B" ~ 2,
+     cdc_group == "C" ~ 3
+   )) %>% 
+   ungroup() %>% 
+    group_by(who_stage) %>% 
+    summarise(count = n(), 
+              proportion = n()/length(data$id))
 }
 
 # Complete study population
-age_at_ART_start_complete <- calculate_age_quantiles(n_complete)
-gender_proportions_complete <- calculate_gender_proportions(n_complete)
-cd4_quantiles_and_na_count_complete <- calculate_cd4_quantiles_and_na_count(n_complete)
-rna_quantiles_and_na_count_complete <- calculate_rna_quantiles_and_na_count(n_complete, lab)
+age_at_ART_start_complete <- calculate_age_quantiles(studypopulation_complete)
+gender_proportions_complete <- calculate_gender_proportions(studypopulation_complete)
+cd4_quantiles_and_na_count_complete <- calculate_cd4_quantiles_and_na_count(studypopulation_complete)
+rna_quantiles_and_na_count_complete <- calculate_rna_quantiles_and_na_count(studypopulation_complete, lab)
+who_stages_complete <- calculate_who_stages(studypopulation_complete)
 
 # TB study population
-age_at_ART_start_tb <- calculate_age_quantiles(n_tb)
-gender_proportions_tb <- calculate_gender_proportions(n_tb)
-cd4_quantiles_and_na_count_tb <- calculate_cd4_quantiles_and_na_count(n_tb)
-rna_quantiles_and_na_count_tb <- calculate_rna_quantiles_and_na_count(n_tb, lab)
+age_at_ART_start_tb <- calculate_age_quantiles(studypopulation_tb)
+gender_proportions_tb <- calculate_gender_proportions(studypopulation_tb)
+cd4_quantiles_and_na_count_tb <- calculate_cd4_quantiles_and_na_count(studypopulation_tb)
+rna_quantiles_and_na_count_tb <- calculate_rna_quantiles_and_na_count(studypopulation_tb, lab)
+who_stages_tb <- calculate_who_stages(studypopulation_tb)
 
 # Not TB study population
-age_at_ART_start_nottb <- calculate_age_quantiles(n_not_tb)
-gender_proportions_nottb <- calculate_gender_proportions(n_not_tb)
-cd4_quantiles_and_na_count_nottb <- calculate_cd4_quantiles_and_na_count(n_not_tb)
-rna_quantiles_and_na_count_nottb <- calculate_rna_quantiles_and_na_count(n_not_tb, lab)
+age_at_ART_start_nottb <- calculate_age_quantiles(studypopulation_not_tb)
+gender_proportions_nottb <- calculate_gender_proportions(studypopulation_not_tb)
+cd4_quantiles_and_na_count_nottb <- calculate_cd4_quantiles_and_na_count(studypopulation_not_tb)
+rna_quantiles_and_na_count_nottb <- calculate_rna_quantiles_and_na_count(studypopulation_not_tb, lab)
+who_stages_nottb <- calculate_who_stages(studypopulation_not_tb)
 ```
 
 ## Exploration of the TB study population (Table 2)
 
 ```{r TB population}
-n_tb <- n_tb %>% 
+#age group
+studypopulation_tb <- studypopulation_tb %>% 
   mutate(age_tb = year(date_tb) - born)
 
 custom_breaks <- c(16, 24, 34, 44, 100)
 
-n_tb %>%
+studypopulation_tb %>%
   mutate(agegroups = cut(age_tb, breaks = custom_breaks, include.lowest = TRUE)) %>%
   count(agegroups)
+
+#gender
+
+#birth country
+birth_country <- studypopulation_tb %>% 
+  select(id, tbd_pat_birth) %>% 
+  group_by(tbd_pat_birth) %>% 
+  summarise(count = n(), proportion = n()/length(n_tb$id)) #140 = Switzerland
+
+#site of tb
+site <- studypopulation_tb %>% 
+  select(id, disease_tbc) %>% 
+  group_by(disease_tbc) %>% 
+  summarise(count = n(), proportion = n()/length(n_tb$id)) #TBC = Pulmonary
+
 ```
