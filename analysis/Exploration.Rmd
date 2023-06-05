@@ -241,32 +241,3 @@ time_to_tb <- tb %>%
 
 ```
 
-## Plots
-
-```{r}
-
-
-# And plot
-
-rna_long_tb <- rna_long %>% 
-  filter(id %in% tb$id) 
-
-ggplot(rna_long, aes(x = time_diff, y = rnarna_values)) +
-  geom_line() +
-  facet_wrap(~ id) +
-  scale_y_sqrt() +
-  labs(x = "Time", y = "rnarna (square root scale)") +
-  theme_minimal()
-
-ggplot(rna_long_tb, aes(x = time_diff, y = rnarna_values)) +
-  geom_line() +
-  facet_wrap(~ id) +
-  scale_y_sqrt() +
-  labs(x = "Time", y = "rnarna (square root scale)") +
-  theme_minimal()
-
-#cd4
-
-
-
-```
