@@ -13,6 +13,8 @@ library(here)
 lab_long <- readRDS("../../data_clean/lab_both_long.rds")
 lab_long_tb <- readRDS("../../data_clean/lab_both_long_tb.rds")
 
+suppression_cd4 <- sqrt(350)
+suppression_rna <- log10(400)
 #### User Interface
 #### User Interface
 ui <- fluidPage(
@@ -30,6 +32,8 @@ server <- function(input, output) {
     c("blue", "red", "green", "purple", "orange")
   })
   
+  xrange <- range(lab_long$time_diff, na.rm=TRUE)
+  
   plot_data <- function(selected_data, add_vline=FALSE){
     id_colors <- setNames(color_palette()[1:length(unique(selected_data$id))], unique(selected_data$id))
     p <- plot_ly()
@@ -37,10 +41,10 @@ server <- function(input, output) {
       id_data <- selected_data[selected_data$id == id, ]
       id_color <- id_colors[as.character(id)]
       p <- p %>%
-        add_trace(data = id_data, x = ~time_diff, y = ~sqrt(rna_value), 
+        add_trace(data = id_data, x = ~time_diff, y = ~log10(rna_value), 
                   type = 'scatter', mode = 'lines', name = paste('RNA', id),
                   line = list(color = id_color, dash = 'dot', width = 2)) %>%
-        add_trace(data = id_data, x = ~time_diff, y = ~log10(cd4_value), 
+        add_trace(data = id_data, x = ~time_diff, y = ~sqrt(cd4_value), 
                   type = 'scatter', mode = 'lines', name = paste('CD4', id), 
                   line = list(color = id_color, width = 2), 
                   yaxis = 'y2') 
@@ -48,15 +52,37 @@ server <- function(input, output) {
       if (add_vline) {
         p <- p %>%
           add_trace(x = c(id_data$time_diff_tb[1], id_data$time_diff_tb[1]), 
-                    y = c(0, max(id_data$cd4_value, na.rm = TRUE)),
+                    y = c(0, max(sqrt(id_data$cd4_value), na.rm = TRUE)),
                     mode = "lines", line = list(color = "red"), inherit = FALSE,
                     name = paste('Time TB', id)) #vertical line
       }
     }
     
     p <- p %>%
-      layout(yaxis = list(title = 'RNA (square root scale)'), 
-             yaxis2 = list(title = 'CD4 (log10 scale)', overlaying = 'y', side = 'right', showgrid = FALSE))
+      add_lines(x = c(min(selected_data$time_diff, na.rm = TRUE), max(selected_data$time_diff, na.rm = TRUE)), 
+                y = c(suppression_rna, suppression_rna), 
+                line = list(color = "black", dash = 'dot'), inherit = FALSE,
+                name = 'Suppression RNA') %>% 
+      add_lines(x = c(min(selected_data$time_diff, na.rm = TRUE), max(selected_data$time_diff, na.rm = TRUE)), 
+                y = c(suppression_cd4, suppression_cd4), 
+                line = list(color = "black"), yaxis = 'y2', inherit = FALSE,
+                name = 'Suppression CD4') %>% 
+      layout(yaxis = list(title = 'RNA (log10 scale)'), 
+             yaxis2 = list(title = 'CD4 (square root scale)', overlaying = 'y', side = 'right', showgrid = FALSE))
+    
+    p <- p %>%
+      layout(
+        yaxis = list(
+          title = 'RNA (log10 scale)', 
+          range = c(1, log10(max(selected_data$rna_value, na.rm = TRUE)))
+        ), 
+        yaxis2 = list(
+          title = 'CD4 (square root scale)', 
+          overlaying = 'y', 
+          side = 'right', 
+          showgrid = FALSE
+        )
+      )
     p
   }
   
@@ -73,8 +99,8 @@ server <- function(input, output) {
   output$id_stats <- renderTable({
     selected_data <- lab_long[lab_long$id %in% input$id_select, ]
     stats <- selected_data %>%
-      mutate(rna_value = sqrt(rna_value),
-             cd4_value = log10(cd4_value)) %>%
+      mutate(rna_value = log10(rna_value),
+             cd4_value = sqrt(cd4_value)) %>%
       group_by(id) %>%
       summarise(min_rna = min(rna_value, na.rm = TRUE),
                 max_rna = max(rna_value, na.rm = TRUE),
@@ -92,8 +118,8 @@ server <- function(input, output) {
   output$id_stats_tb <- renderTable({
     selected_data_tb <- lab_long_tb[lab_long_tb$id %in% input$id_select_tb, ]
     stats_tb <- selected_data_tb %>%
-      mutate(rna_value = sqrt(rna_value),
-             cd4_value = log10(cd4_value)) %>%
+      mutate(rna_value = log10(rna_value),
+             cd4_value = sqrt(cd4_value)) %>%
       group_by(id) %>%
       summarise(min_rna = min(rna_value, na.rm = TRUE),
                 max_rna = max(rna_value, na.rm = TRUE),
