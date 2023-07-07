@@ -21,20 +21,25 @@ pacman:: p_load(
   haven,
   janitor,
   inspectdf,
-  flextable
+  flextable,
+  epitools,
+  rayshader,#3dplot
+  htmlwidgets,#3dplot
+  rgl#3dplot
 )
 
+width_descr <- 11 / cm(1)
+height_descr <- 8 / cm(1)
 ```
 
 ## Data
 
 ```{r}
-hiv <- readRDS("../data_clean/studypopulation_hiv.rds")
-tb <- readRDS("../data_clean/studypopulation_tb.rds")
-no_tb <- readRDS("../data_clean/studypopulation_without_tb.rds")
-dis <- readRDS("../data_clean/disease.rds")
-lab <- readRDS("../data_clean/laboratory.rds")
-lab_long <- readRDS("../data_clean/lab_both_long.rds")
+ch <- readRDS("../data_clean/art_lab_ch.rds")
+ch_lab_long <- readRDS("../data_clean/art_lab_ch_long.rds")
+presentingTB_ch <- readRDS("../data_clean/presentingTB_ch.rds")
+notpresentingTB_ch <- readRDS("../data_clean/notpresentingTB_ch.rds")
+tb20102022_ch <- readRDS("../data_clean/tb20102022_ch.rds")
 ```
 
 ## Exploration of the study population (Table 1)
@@ -44,110 +49,115 @@ lab_long <- readRDS("../data_clean/lab_both_long.rds")
 
 ###age
 calculate_age_quantiles <- function(data) {
-  data %>%
+  data %>% 
+    mutate(age_at_ART_start = year(art_start_date)-born) %>% 
     summarize("25quantil" = quantile(age_at_ART_start, 0.25),
               "50quantil" = quantile(age_at_ART_start, 0.5),
               "75quantil" = quantile(age_at_ART_start, 0.75))
 }
 
-###gender
-calculate_gender_proportions <- function(data) {
-  data %>%
-    group_by(sex) %>%
-    summarise(count = n()) %>%
-    mutate(proportion = count / sum(count))
-}
-
-###type of TB
-calculate_type_of_TB <- function(data) {
-  data %>%
-    mutate(type_tb_shcs = ifelse(type_tb_shcs == 3, 1, type_tb_shcs)) %>% # 1 and 3 are both pulmonary
-    group_by(type_tb_shcs) %>%
-    summarize(count = n()) %>%
-    filter(!is.na(type_tb_shcs)) %>%
-    mutate(proportion = count / sum(count))
-}
-
 ##baseline cd4 count
-calculate_cd4_baseline <- function(data, lab_data) {
-  merged_data <- left_join(data, lab, by = "id") %>%
-  select(id, art_start_date, cd4, labdate) %>%
-  mutate(rna = ifelse(labdate >= (art_start_date - 180) & labdate <= (art_start_date + 30), cd4, NA)) %>%
-  filter(!is.na(cd4)) %>% 
-  arrange(abs(art_start_date - labdate)) %>%
-  group_by(id) %>%
-  distinct(id, .keep_all = TRUE)
-  
-  cd4_quantiles <- quantile(merged_data$cd4, c(0.25, 0.5, 0.75), na.rm = TRUE)
-  not_na_count <- sum(!is.na(merged_data$cd4))
-  list(quantiles = cd4_quantiles, not_na_count = not_na_count)
+calculate_cd4_baseline <- function(data) {
+ 
+  cd4_quantiles <- quantile(data$cd4_baseline, c(0.25, 0.5, 0.75), na.rm = TRUE)
+  not_na_count <- sum(!is.na(data$cd4_baseline))
+  min_cd4 <- min(data$cd4_baseline, na.rm = TRUE)
+  max_cd4 <- max(data$cd4_baseline, na.rm = TRUE)
 
+  list(data = data, quantiles = cd4_quantiles, not_na_count = not_na_count, min = min_cd4, max = max_cd4)
 }
+
 ##baseline hiv-rna count
-calculate_rna_baseline <- function(data, lab_data) {
-  merged_data <- left_join(data, lab, by = "id") %>%
-  select(id, art_start_date, rna, labdate) %>%
-  mutate(rna = ifelse(labdate >= (art_start_date - 180) & labdate <= (art_start_date + 30), rna, NA)) %>%
-  filter(!is.na(rna)) %>% 
-  arrange(abs(art_start_date - labdate)) %>%
-  group_by(id) %>%
-  distinct(id, .keep_all = TRUE)
+calculate_rna_baseline <- function(data) {
   
-  rna_quantiles <- quantile(merged_data$rna, c(0.25, 0.5, 0.75), na.rm = TRUE)
-  not_na_count <- sum(!is.na(merged_data$rna))
-  list(quantiles = rna_quantiles, not_na_count = not_na_count)
+  rna_quantiles <- quantile(data$rna_baseline, c(0.25, 0.5, 0.75), na.rm = TRUE)
+  not_na_count <- sum(!is.na(data$rna_baseline))
+  min <- min(data$rna_baseline, na.rm = TRUE)
+  max <- max(data$rna_baseline, na.rm = TRUE)
+  list(data = data, quantiles = rna_quantiles, not_na_count = not_na_count, min = min, max = max)
 }# i filter the ones out which are out of the timeframe and those with NA, this gives some more valus. For some, the most recent value may be a NA but there are other measures.
 
 #question: there are several patients with rna = 0. Is this possible or NA?
 
-ids_only_in_n_complete <- setdiff(hiv$id, lab$id) #35 ids don't have lab data
-length(ids_only_in_n_complete)
-
-##who clinical stage
-  
-calculate_who_stages <- function(data) {
-  merged_data <- left_join(data, dis, by = "id") %>%
-  select(id, art_start_date, newdate, disease, cdc_group) %>%
-  mutate(cdc_group = ifelse(cdc_group =="", NA, cdc_group)) %>%
-  group_by(id) %>%
-  mutate(cdc_group =  
-  ifelse(newdate <= (art_start_date + 30), cdc_group, NA)) %>%
-  arrange(abs(art_start_date - newdate)) %>%
-  filter(!is.na(cdc_group)) %>% 
-  distinct(id, .keep_all = TRUE) %>% 
-   mutate(who_stage = case_when(
-     cdc_group == "A" ~ 1,
-     cdc_group == "B" ~ 2.3,
-     cdc_group == "C" ~ 4
-   )) %>% 
-   ungroup() 
-  
-  tabyl(merged_data, who_stage)
-
-}
-
 # Complete study population
-age_at_ART_start_hiv <- calculate_age_quantiles(hiv)
-gender_proportions_hiv <- calculate_gender_proportions(hiv)
-typetb_hiv <- calculate_type_of_TB(hiv)
-cd4_baseline_hiv <- calculate_cd4_baseline(hiv)
-rna_baseline_hiv <- calculate_rna_baseline(hiv, lab)
-who_stages_hiv <- calculate_who_stages(hiv)
+age_at_ART_start_hiv <- calculate_age_quantiles(ch)
+gender_proportions_hiv <- tabyl(ch, sex)
+typetb_hiv <- tabyl(ch, type_tb_shcs)
+source_hiv <- tabyl(ch, risk2)
+cd4_baseline_hiv <- calculate_cd4_baseline(ch)
+rna_baseline_hiv <- calculate_rna_baseline(ch)
+who_stages_hiv <- tabyl(ch,who_stage)
 
 # TB study population
-age_at_ART_start_tb <- calculate_age_quantiles(tb)
-gender_proportions_tb <- calculate_gender_proportions(tb)
-typetb_tb <- calculate_type_of_TB(tb)
-cd4_baseline_tb <- calculate_cd4_baseline(tb)
-rna_baseline_tb <- calculate_rna_baseline(tb, lab)
-who_stages_tb <- calculate_who_stages(tb)
+age_at_ART_start_tb <- calculate_age_quantiles(presentingTB_ch)
+gender_proportions_tb <- tabyl(presentingTB_ch, sex)
+typetb_tb <- tabyl(presentingTB_ch, type_tb_shcs)
+source_hiv_tb <- tabyl(presentingTB_ch, risk2)
+cd4_baseline_tb <- calculate_cd4_baseline(presentingTB_ch)
+rna_baseline_tb <- calculate_rna_baseline(presentingTB_ch)
+who_stages_tb <- tabyl(presentingTB_ch, who_stage)
 
 # Not TB study population
-age_at_ART_start_notb <- calculate_age_quantiles(no_tb)
-gender_proportions_notb <- calculate_gender_proportions(no_tb)
-cd4_baseline_notb <- calculate_cd4_baseline(no_tb)
-rna_baseline_notb <- calculate_rna_baseline(no_tb, lab)
-who_stages_notb <- calculate_who_stages(no_tb)
+age_at_ART_start_notb <- calculate_age_quantiles(notpresentingTB_ch)
+gender_proportions_notb <- tabyl(notpresentingTB_ch, sex)
+typetb_notb <- tabyl(notpresentingTB_ch, type_tb_shcs)
+source_hiv_notb <- tabyl(notpresentingTB_ch, risk2)
+cd4_baseline_notb <- calculate_cd4_baseline(notpresentingTB_ch)
+rna_baseline_notb <- calculate_rna_baseline(notpresentingTB_ch)
+who_stages_notb <- tabyl(notpresentingTB_ch, who_stage)
+
+#### Plots
+###Baseline CD4/RNA
+# Calculate the counts
+ch_counts <-  ch %>%
+  group_by(cd4_group, rna_group) %>%
+  summarise(n = n())
+
+# Plot the data
+plot_baseline_groups_ch <- ggplot(ch_counts, aes(x = cd4_group, y = rna_group, fill = n)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  labs(x = "CD4 Group",
+       y = "RNA Group",
+       fill = "Count",
+       title = "Number of IDs per Group") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+plot_baseline_groups_ch
+
+ggsave(filename = "../results/baseline_groups_ch.jpeg", plot = plot_baseline_groups_ch, width = 10, height = 8, dpi = 300)
+
+pp <- ch %>%  
+  ggplot(aes(x=sqrt(cd4_baseline), y=log10(rna_baseline))) +
+  geom_hex(bins = 20, linewidth = 0.5, color = "black") +
+  scale_fill_viridis_c(option = "C")
+
+plot_gg(pp, width = 4, height = 4, scale = 300, multicore = TRUE)
+widget = rglwidget()
+
+saveWidget(widget, file = "../results/3dplotbaseline.html")
+
+###Source of infection / sex
+
+infectionsex_ch <- ch %>% 
+  group_by(sex,risk2) %>% 
+  summarise(n = n())
+
+# Replace the levels of sex
+
+plot_infection_sex_ch <- infectionsex_ch %>%
+  ggplot(aes(x = risk2, y = n, fill = sex)) +
+  geom_col(position = "dodge") +
+  labs(fill = "Sex", x = "", y = "n") +
+  coord_flip() +
+  ggtitle("Source of original infection") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+plot_infection_sex_ch
+
+ggsave(filename = "../results/infectionsource.jpeg", plot = plot_infection_sex_ch, width = 10, height = 8, dpi = 300)
 ```
 
 ## Exploration of the TB study population (Table 2)
@@ -156,57 +166,74 @@ who_stages_notb <- calculate_who_stages(no_tb)
 #age group
 custom_breaks <- c(16, 24, 34, 44, 100)
 
-tb <- tb %>% 
+tb20102022_ch <- tb20102022_ch %>% 
   mutate(age_tb = year(date_tb) - born) %>%
-  mutate(agegroups = cut(age_tb, breaks = custom_breaks, include.lowest = TRUE)) 
+  mutate(agegroups = cut(age_tb, breaks = custom_breaks, include.lowest = TRUE)) %>% 
+  mutate(agegroups = as.factor(agegroups))
 
-flextable(tabyl(tb, agegroups))
+flextable(tabyl(tb20102022_ch, agegroups))
+
+tb20102022_ch %>%
+    summarize("25quantil" = quantile(age_tb, 0.25),
+              "50quantil" = quantile(age_tb, 0.5),
+              "75quantil" = quantile(age_tb, 0.75))
 
 #gender
+flextable(tabyl(tb20102022_ch, sex))
 
 #birth country
+flextable(tabyl(tb20102022_ch, tbd_pat_birth)) #140 = Switzerland
 
-flextable(tabyl(tb, tbd_pat_birth)) #140 = Switzerland
+#region
+flextable(tabyl(tb20102022_ch, region))
 
 #site of tb
-
-flextable(tabyl(tb, disease_tbc)) #TBC = Pulmonary
+flextable(tabyl(tb20102022_ch, type_tb_shcs)) #TBC = Pulmonary
 
 #cd4 at tb diagnosis
-calculate_cd4_tbdiagnosis <- function(data, lab_data) {
-  merged_data <- left_join(data, lab, by = "id") %>%
-  select(id, date_tb, cd4, labdate) %>%
-  mutate(cd4 = ifelse(labdate >= (date_tb - 30) & labdate <= (date_tb + 15), cd4, NA)) %>%
-  filter(!is.na(cd4)) %>% 
-  arrange(abs(date_tb - labdate)) %>%
-  group_by(id) %>%
-  distinct(id, .keep_all = TRUE)
-  
-  cd4_quantiles <- quantile(merged_data$cd4, c(0.25, 0.5, 0.75), na.rm = TRUE)
-  not_na_count <- sum(!is.na(merged_data$cd4))
-  list(quantiles = cd4_quantiles, not_na_count = not_na_count)
+tb20102022_ch %>% 
+  summarize("25quantil" = quantile(tb_diag_cd4, 0.25, na.rm = TRUE),
+              "50quantil" = quantile(tb_diag_cd4, 0.5, na.rm = TRUE),
+              "75quantil" = quantile(tb_diag_cd4, 0.75, na.rm = TRUE),
+            "missing" = sum(is.na(tb_diag_cd4)))
 
-}
-
-cd4_tbdiagnosis <- calculate_cd4_tbdiagnosis(tb, lab)
 
 #hiv rna at tb diagnosis
-calculate_rna_tbdiagnosis <- function(data, lab_data) {
-  merged_data <- left_join(data, lab, by = "id") %>%
-  select(id, date_tb, rna, labdate) %>%
-  mutate(rna = ifelse(labdate >= (date_tb - 30) & labdate <= (date_tb + 15), rna, NA)) %>%
-  filter(!is.na(rna)) %>% 
-  arrange(abs(date_tb - labdate)) %>%
-  group_by(id) %>%
-  distinct(id, .keep_all = TRUE)
-  
-  rna_quantiles <- quantile(merged_data$rna, c(0.25, 0.5, 0.75), na.rm = TRUE)
-  not_na_count <- sum(!is.na(merged_data$rna))
-  list(quantiles = rna_quantiles, not_na_count = not_na_count)
-  
-}
+tb20102022_ch %>% 
+  summarize("25quantil" = quantile(tb_diag_rna, 0.25, na.rm = TRUE),
+              "50quantil" = quantile(tb_diag_rna, 0.5, na.rm = TRUE),
+              "75quantil" = quantile(tb_diag_rna, 0.75, na.rm = TRUE),
+            "missing" = sum(is.na(tb_diag_rna)))
 
-rna_tbdiagnosis <- calculate_rna_tbdiagnosis(tb, lab)
+#### Plots
+
+valid_regions <- tb20102022_ch %>%
+  group_by(region, agegroups) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  filter(n > 0) %>%
+  select(region) %>%
+  distinct()  # To ensure we don't have duplicate regions
+
+# Create the complete data frame and filter for valid regions
+region_ch <- tb20102022_ch %>%
+  group_by(region, agegroups) %>%
+  summarise(n = n(), .groups = 'drop') %>%
+  complete(region, agegroups, fill = list(n = 0)) %>%
+  filter(region %in% valid_regions$region) 
+
+plot_region_age_ch <- region_ch %>%
+  ggplot(aes(x = region, y = n, fill = factor(agegroups))) +
+  geom_col(position = "dodge") +
+  labs(fill = "Age group", x = "", y = "n") +
+  coord_flip() +
+  scale_fill_discrete(breaks = rev(levels(region_ch$agegroups))) +  # reversing the order of legend
+  ggtitle("Nationality and age") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+plot_region_age_ch
+
+ggsave(filename = "../results/nationalityage_ch.jpeg", plot = plot_region_age_ch, width = 10, height = 8, dpi = 300)
 ```
 
 ## Endpoints (Table 3)
@@ -216,28 +243,126 @@ Remarks: We defined incident as TB diagnosis after two months of starting ART. F
 ```{r}
 #incidence
 
-tb_incidence <- sum(hiv$case_incident_2m == 1) #15 incidences
-
-tb_incidence_personyears <- hiv %>%
-  mutate(art_start_date_2m = art_start_date + months(2),  # Calculate the date 2 months after art_start_date
+# Overall TB incidence rate
+overall_tb_incidence <- ch %>%
+  mutate(art_start_date_2m = art_start_date + months(2), 
          persontime = ifelse(case_incident_2m == 1,
-                             as.numeric(difftime(date_tb, art_start_date_2m, units = "days")) / 360,  # time between 2 months after art_start_date and date_tb in years
+                             as.numeric(difftime(date_tb, art_start_date_2m, units = "days")) / 360, #convert to years
                              ifelse(!is.na(exitdate),
-                                    as.numeric(difftime(exitdate, art_start_date_2m, units = "days")) / 360,  # time between 2 months after art_start_date and exitdate in years
-                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date_2m, units = "days")) /360  # time between 2 months after art_start_date and 31.12.2022 in years
+                                    as.numeric(difftime(exitdate, art_start_date_2m, units = "days")) / 360,  
+                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date_2m, units = "days")) /360  
                              ))) %>% 
-  filter(persontime > 0)
+  filter(persontime > 0) %>%
+  summarise(tb_incidence = sum(case_incident_2m == 1), 
+            person_years = sum(persontime)/100000) %>% 
+  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95)) 
 
-person_years <- sum(tb_incidence_personyears$persontime)
-incidence_rate = (tb_incidence/person_years)*100000
+# Incidence calculations by each rna_group
+incidence_by_rna <- ch %>%
+  mutate(art_start_date_2m = art_start_date + months(2), 
+         persontime = ifelse(case_incident_2m == 1,
+                             as.numeric(difftime(date_tb, art_start_date_2m, units = "days")) / 360, 
+                             ifelse(!is.na(exitdate),
+                                    as.numeric(difftime(exitdate, art_start_date_2m, units = "days")) / 360,  
+                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date_2m, units = "days")) /360  
+                             ))) %>% 
+  filter(persontime > 0) %>%
+  group_by(rna_group) %>%
+  summarise(tb_incidence = sum(case_incident_2m == 1), 
+            person_years = sum(persontime)/100000) %>% 
+  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95))
+
+# Incidence calculations by each cd4_group
+incidence_by_cd4 <- ch %>%
+  mutate(art_start_date_2m = art_start_date + months(2), 
+         persontime = ifelse(case_incident_2m == 1,
+                             as.numeric(difftime(date_tb, art_start_date_2m, units = "days")) / 360, 
+                             ifelse(!is.na(exitdate),
+                                    as.numeric(difftime(exitdate, art_start_date_2m, units = "days")) / 360,  
+                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date_2m, units = "days")) /360  
+                             ))) %>% 
+  filter(persontime > 0) %>%
+  group_by(cd4_group) %>%
+  summarise(tb_incidence = sum(case_incident_2m == 1), 
+            person_years = sum(persontime)/100000) %>% 
+  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95))
+
+#cd4plot
+
+incidence_cd4 <- incidence_by_cd4 %>% 
+  ggplot(aes(x = cd4_group, y = pois$rate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper), width = 0.2) +
+  labs(x= "Baseline CD4 cell count", y = "TB incidence per 100,000 person-years") +
+  theme_bw()
+incidence_cd4
+
+ggsave(plot = incidence_cd4, filename = "../results/incidence_cd4.png", width = width_descr, height = height_descr)
+
+#rnaplot
+
+incidence_rna <- incidence_by_rna %>% 
+  ggplot(aes(x = rna_group, y = pois$rate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper), width = 0.2) +
+  labs(x= "Baseline HIV RNA viral load", y = "TB incidence per 100,000 person-years") +
+  theme_bw()
+incidence_rna
+
+ggsave(plot = incidence_rna, filename = "../results/incidence_rna.png", width = width_descr, height = height_descr)
 
 #time to tb
-time_to_tb <- tb %>% 
-  mutate(time_to_tb = as.numeric(date_tb-art_start_date)) %>% 
-  summarise(median = median(time_to_tb))
+time_to_tb <- ch %>% 
+  filter(case_incident_2m ==1) %>% 
+  mutate(time_to_tb = as.numeric(date_tb - (art_start_date + months(2)))) %>% 
+  summarise(median = median(time_to_tb, na.rm = TRUE),
+            "25%" = quantile(time_to_tb, 0.25, na.rm = TRUE),
+            "75%" = quantile(time_to_tb, 0.75, na.rm = TRUE))
 
 #incidence of viral suppression
+rna_supression_treshold <- 400
+cd4_suppression_treshold <- 350
 
+# Sorting the data by id and date
+lab_long <- ch_lab_long %>% arrange(id, labdate)
+
+# Creating the next_rna_value and next_cd4_value columns
+lab_long_next <- lab_long %>% 
+  group_by(id) %>% 
+  mutate(next_rna = lead(rna, order_by = labdate),
+         next_cd4 = lead(cd4, order_by = labdate))
+
+# Filter the rows where both the current and next rna_value are <400 and cd4_value are >350
+suppression_dates <- lab_long_next %>%
+  group_by(id) %>%
+  filter(rna < rna_supression_treshold & next_rna < rna_supression_treshold & cd4 > cd4_suppression_treshold & next_cd4 > cd4_suppression_treshold) %>%
+  slice_min(labdate, n = 1) %>% 
+  select(id, labdate)
+
+# Joining the suppression_dates with hiv
+hiv_sup <- left_join(ch, suppression_dates, by = "id") %>% 
+  rename(viral_suppression = labdate)
+
+viralsuppression_incidence <- hiv_sup %>%
+  select(id, viral_suppression, art_start_date, exitdate) %>% 
+  mutate(persontime = ifelse(!is.na(viral_suppression),
+                            as.numeric(difftime(viral_suppression, art_start_date, units = "days")) / 360,
+                            ifelse(!is.na(exitdate),
+                                    as.numeric(difftime(exitdate, art_start_date, units = "days")) / 360,  
+                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date, units = "days")) /360  
+                             ))) %>% 
+  summarise(sup_incidence = sum(!is.na(viral_suppression)), 
+            person_years = sum(persontime)/100000) %>% 
+  mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95))
+
+#time to viral suppression
+
+time_to_virsup <- hiv_sup %>% 
+  select(id, viral_suppression, art_start_date) %>% 
+  mutate(time_to_sup = as.numeric(viral_suppression-art_start_date)) %>% 
+  summarise(med = median(time_to_sup, na.rm = TRUE),
+            "25" = quantile(time_to_sup, 0.25, na.rm = TRUE),
+            "75" = quantile(time_to_sup, 0.75, na.rm = TRUE))
 
 ```
 
