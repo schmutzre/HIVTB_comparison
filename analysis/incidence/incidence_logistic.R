@@ -1,17 +1,16 @@
-##### Libraries #####
+##### Libraries ----
 
 if(!require(pacman)) install.packages("pacman")
 
 pacman:: p_load(
   dplyr, # for data wrangling
-  lubridate, # for date handling
-  rlang, # for '!!' inside the functions
   ggplot2, # for plotting
   haven,
   lme4,
   sjPlot,
   pROC,
-  caret
+  caret,
+  car
 )
 
 ##### data import #####
@@ -19,7 +18,7 @@ pacman:: p_load(
 ch <- readRDS("data_clean/art_ch.rds")
 #sa <- readRDS("data_clean/art_sa")
 
-##### prepare dataframe for analysis #####
+##### preprocessing ----
 
 logistic_ch <- readRDS("data_clean/df_inc_ch.rds")
 
@@ -33,14 +32,20 @@ logistic_sa <- #...
   
 logistic <- logistic_test #... #join them together 
 
-#### analysis
+#### model ----
 
 logistic_main <- glmer(case_incident_2m ~ cohort + sex + age_art_start +(1|cd4_group) + (1|rna_group), data = logistic, family = "binomial")
+
+#### results ----
 
 # Print model summary
 summary(logistic_main)
 
 # Odds Ratios
+# Interpretation:
+# OR = 1: No association between exposure and outcome.
+# OR > 1: The exposure is associated with higher odds of outcome.
+# OR < 1: The exposure is associated with lower odds of outcome.
 exp(fixef(logistic_main))
 
 # Random effects
@@ -58,6 +63,7 @@ roc_obj <- roc(response = logistic$case_incident_2m, predictor = predicted_proba
 
 # Print the ROC curve
 print(roc_obj)
+#An AUC of 1 means the model has perfect discrimination, while an AUC of 0.5 means the model's discrimination is no better than random chance.
 
 # Plot the ROC curve
 plot(roc_obj, print.auc = TRUE)
@@ -77,3 +83,10 @@ predicted_class <- logistic %>%
 
 # Generate the confusion matrix with the new threshold
 confusionMatrix(predicted_class$classification, predicted_class$case_incident_2m)
+
+#### check assumptions ----
+
+# Run the Box-Tidwell test
+# Include only the continuous variables in the test
+boxTidwell(case_incident_2m ~ age_art_start, data = logistic)
+# P < .05 --> reject the null hypothesis and conclude that there's evidence of non-linearity in the logit for that predictor. 

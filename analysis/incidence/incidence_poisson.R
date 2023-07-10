@@ -1,4 +1,4 @@
-##### Libraries #####
+##### Libraries ----
 
 if(!require(pacman)) install.packages("pacman")
 
@@ -12,12 +12,12 @@ pacman:: p_load(
   epitools
   )
 
-##### data import #####
+##### data import ----
 
 ch <- readRDS("data_clean/art_ch.rds")
 #sa <- readRDS("data_clean/art_sa")
 
-##### prepare dataframe for analysis #####
+##### preprocessing ----
 
 poisson_ch <- readRDS("data_clean/df_inc_ch.rds")
 
@@ -31,9 +31,9 @@ poisson_sa <- #...
 
 poisson <- poisson_test #... #join them together 
 
-##### analysis #####
+##### model ----
 
-### incidence model
+### first model
 
 poisson_df <- poisson %>% 
   group_by(cohort) %>% 
@@ -45,7 +45,7 @@ irr <- poisson_df$pois$rate[poisson_df$cohort == "SA"] / poisson_df$pois$rate[po
 
 print(irr)
 
-### main analysis ----
+### regression model
 
 model_main <- glm(case_incident_2m ~ cohort, offset=log(persontime_years), family="poisson", data=poisson)
 # Run a Poisson regression model with 'cohort' as the predictor and 'case_incident_2m' as the outcome. The log of 'person_time_years' is used as an offset.
@@ -55,10 +55,6 @@ exp(coef(summary(model_main)))
 
 # CI
 exp(confint(model_main))
-
-## checking for overdispersion - the Poisson model assumes that the mean and variance of the outcome are equal. If the variance is greater than the mean, the data are overdispersed.
-disp_test <- dispersiontest(model_main, trafo=1)  # 'trafo = 1' for log-transformed data
-print(disp_test)
 
 ## modeled outcome vs observed outcome
 # add predictions to data
@@ -73,7 +69,7 @@ ggplot(poisson_compare, aes(x = case_incident_2m, y = predicted_counts_abs)) +
 
 #add 2x2 matrix
 
-##### results #####
+##### plots ----
 
 ### For main analysis
 results_main <- broom::tidy(model_main, exponentiate = TRUE, conf.int = TRUE) %>%
@@ -94,7 +90,6 @@ incidence_rate_ratio <- ggplot(results_main %>% filter(term == "Effect"), aes(x 
   labs(x = "Incidence Rate Ratio (IRR)", y = "") +
   theme_bw()
 
-
  incidence_rate_ratio
 
 # Save plot as a jpeg (check dimensions again after plotting)
@@ -110,4 +105,11 @@ inc_n_ch <- flextable(inc_ch)
 
 # Save your table as an image
 save_as_image(inc_n_ch, "results/inc_n_ch.png", expand = 10)
+
+#### assumption ----
+
+## checking for overdispersion - the Poisson model assumes that the mean and variance of the outcome are equal. If the variance is greater than the mean, the data are overdispersed.
+disp_test <- dispersiontest(model_main, trafo=1)  # 'trafo = 1' for log-transformed data
+print(disp_test)
+
 
