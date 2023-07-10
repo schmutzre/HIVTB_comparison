@@ -10,15 +10,12 @@ pacman:: p_load(
   sjPlot,
   pROC,
   caret,
-  car
+  car, 
+  tabyl
 )
 
-##### data import #####
 
-ch <- readRDS("data_clean/art_ch.rds")
-#sa <- readRDS("data_clean/art_sa")
-
-##### preprocessing ----
+##### data import ----
 
 logistic_ch <- readRDS("data_clean/df_inc_ch.rds")
 
@@ -34,7 +31,7 @@ logistic <- logistic_test #... #join them together
 
 #### model ----
 
-logistic_main <- glmer(case_incident_2m ~ cohort + sex + age_art_start +(1|cd4_group) + (1|rna_group), data = logistic, family = "binomial")
+logistic_main <- glmer(case_incident_2m ~ cohort + sex + age_art_start + rna_group + cd4_group + (1 | rna_group), data = logistic, family = "binomial")
 
 #### results ----
 
@@ -83,10 +80,3 @@ predicted_class <- logistic %>%
 
 # Generate the confusion matrix with the new threshold
 confusionMatrix(predicted_class$classification, predicted_class$case_incident_2m)
-
-#### check assumptions ----
-
-# Run the Box-Tidwell test
-# Include only the continuous variables in the test
-boxTidwell(case_incident_2m ~ age_art_start, data = logistic)
-# P < .05 --> reject the null hypothesis and conclude that there's evidence of non-linearity in the logit for that predictor. 

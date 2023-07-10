@@ -19,11 +19,6 @@ pacman:: p_load(
 
 ##### data import ----
 
-ch <- readRDS("data_clean/art_ch.rds")
-#sa <- readRDS("data_clean/art_sa")
-
-##### preprocessing ----
-
 cox_ch <- readRDS("data_clean/df_inc_ch.rds")
 
 cox_test <- cox_ch %>% 

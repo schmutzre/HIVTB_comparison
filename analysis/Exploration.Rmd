@@ -290,9 +290,12 @@ incidence_by_cd4 <- ch %>%
 #cd4plot
 
 incidence_cd4 <- incidence_by_cd4 %>% 
-  ggplot(aes(x = cd4_group, y = pois$rate)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper), width = 0.2) +
+  ggplot() +
+  geom_point(aes(x = cd4_group, y = pois$rate)) +
+  geom_errorbar(aes(x= cd4_group, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
+  geom_point(aes(x = "overall", y=overall_tb_incidence$pois$rate)) +
+  geom_errorbar(aes(x= "overall", ymin = overall_tb_incidence$pois$lower, 
+                    ymax = overall_tb_incidence$pois$upper), width = 0.2) +
   labs(x= "Baseline CD4 cell count", y = "TB incidence per 100,000 person-years") +
   theme_bw()
 incidence_cd4
@@ -302,11 +305,15 @@ ggsave(plot = incidence_cd4, filename = "../results/incidence_cd4.png", width = 
 #rnaplot
 
 incidence_rna <- incidence_by_rna %>% 
-  ggplot(aes(x = rna_group, y = pois$rate)) +
-  geom_point() +
-  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper), width = 0.2) +
+  ggplot() +
+  geom_point(aes(x = rna_group, y = pois$rate)) +
+  geom_errorbar(aes(x= rna_group, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
+  geom_point(aes(x = "overall", y=overall_tb_incidence$pois$rate)) +
+  geom_errorbar(aes(x= "overall", ymin = overall_tb_incidence$pois$lower, 
+                    ymax = overall_tb_incidence$pois$upper), width = 0.2) +
   labs(x= "Baseline HIV RNA viral load", y = "TB incidence per 100,000 person-years") +
   theme_bw()
+
 incidence_rna
 
 ggsave(plot = incidence_rna, filename = "../results/incidence_rna.png", width = width_descr, height = height_descr)
@@ -366,3 +373,126 @@ time_to_virsup <- hiv_sup %>%
 
 ```
 
+```{r}
+lab_distribution <- ch_lab_long %>% 
+  filter(!is.na(cd4) | !is.na(rna)) %>% 
+  ggplot(aes(x= time_diff)) +
+  geom_histogram(fill = "darkblue") +
+  labs(x="days difference from art start", title = "Distribution of non-NA lab-measurements") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+ggsave(plot = lab_distribution, filename = "../results/lab_distribution.png", width = width_descr, height = height_descr)
+```
+
+```{r}
+ch_lab_long <- ch_lab_long %>%
+  mutate(year = round(time_diff / 365))
+
+ch_lab_long %>% 
+  group_by(year) %>% 
+  summarise(med = median(rna, na.rm = TRUE))
+
+ch_lab_sum <- ch_lab_long %>%
+  group_by(year) %>%
+  mutate(rna = log10(rna + 1)) %>% 
+  summarise(
+    median_cd4 = median(cd4, na.rm = TRUE),
+    lower_cd4 = quantile(cd4, 0.25, na.rm = TRUE),
+    higher_cd4 = quantile(cd4, 0.75, na.rm = TRUE),
+    mean_cd4 = mean(cd4, na.rm = TRUE),
+    median_rna = median(rna, na.rm = TRUE),
+    lower_rna = quantile(rna,0.25, na.rm = TRUE),    
+    higher_rna = quantile(rna, 0.75, na.rm =TRUE),
+    mean_rna = mean(rna, na.rm = TRUE)
+  )
+
+
+## cd4 over years
+cd4_quantile <- ch_lab_long %>% 
+  ggplot(aes(x= year)) +
+  geom_line(aes(group = factor(id), y = cd4), color = "grey", alpha = .5)+
+  geom_line(data= ch_lab_sum,
+            aes(y=mean_cd4),
+            color = "darkgreen") +
+  geom_errorbar(data = ch_lab_sum, 
+                aes(ymin = lower_cd4, ymax = higher_cd4), 
+                width = 0.2, color = "black") +
+  geom_point(data = ch_lab_sum, 
+             aes(y = median_cd4), 
+             size = 1, color = "red")+
+  geom_hline(yintercept =350) +
+  theme_bw() +
+  labs(x= "year difference from labdate to ART start")
+
+cd4_quantile
+
+ggsave(plot = cd4_quantile, filename = "../results/cd4_quantile.png", width = width_descr, height = height_descr)
+
+## cd4 1 year
+
+cd4_year <- ch_lab_long %>% 
+  filter(time_diff > -150 & time_diff < 360) %>% 
+  ggplot(aes(x = time_diff)) +
+  geom_line(aes(group = factor(id), y = cd4), color = "grey", alpha = .5) +
+  geom_hline(yintercept =350) +
+  geom_smooth(aes(y = cd4), method = "lm", color = "red", se = FALSE) +
+  theme_bw() +
+  labs(x = "Days since ART start")
+
+ggsave(plot = cd4_year, filename = "../results/cd4_year.png", width = width_descr, height = height_descr)
+
+### rna
+
+rna_quantile <- ch_lab_long %>% 
+  ggplot(aes(x= year)) +
+  geom_line(aes(group = factor(id), y = log10(rna)), color = "grey", alpha = .5)+
+  geom_line(data= ch_lab_sum,
+            aes(y=mean_rna),
+            color = "darkgreen") +
+  geom_errorbar(data = ch_lab_sum, 
+                aes(ymin = lower_rna, ymax = higher_rna), 
+                width = 0.2, color = "black") +
+  geom_point(data = ch_lab_sum, 
+             aes(y = median_rna), 
+             size = 1, color = "red")+
+  theme_bw() +
+  geom_hline(yintercept = log10(400)) +
+  labs(x= "year difference from labdate to ART start") 
+
+rna_quantile
+
+ggsave(plot = rna_quantile, filename = "../results/rna_quantile.png", width = width_descr, height = height_descr)
+
+# rna 1 year
+rna_year <- ch_lab_long %>%
+  filter(time_diff > -150 & time_diff < 360) %>% 
+  ggplot(aes(x = time_diff)) +
+  geom_line(aes(group = factor(id), y = log10(rna)), color = "grey", alpha = .5) +
+  geom_smooth(aes(y = log10(rna)), method = "lm", color = "red", se = FALSE)+
+  geom_hline(yintercept = log10(400)) +
+  labs(x = "Days since ART start") +
+  theme_bw()
+
+ggsave(plot = rna_year, filename = "../results/rna_year.png", width = width_descr, height = height_descr)
+
+# checking the weird shape of the rna plot
+zero_rna <- ch_lab_long %>% 
+  group_by(year) %>% 
+  summarise(zero_rna = sum(rna == 0, na.rm = TRUE), non_zero = sum(rna != 0, na.rm = TRUE), nA = sum(is.na(rna)))
+
+rna_measurements <- zero_rna %>% 
+  ggplot(aes(x=year)) +
+  geom_point(aes(y= zero_rna, color = "zero_rna"), size = 1) +
+  geom_point(aes(y= non_zero, color = "non_zero"), size = 1) +
+  geom_point(aes(y = nA, color = "nA"), size = 1) +
+  scale_y_continuous(limits = c(0,20000)) +
+  scale_color_manual(values = c("zero_rna" = "red", "non_zero" = "blue", "nA" = "grey"),
+                     labels = c("zero_rna" = "rna=0", "non_zero" = "rna != 0", "nA" = "NA")) +
+  guides(color = guide_legend(title = NULL)) +
+  theme_bw() +
+  labs(y=("number of rna measurements"), x = "year difference to ART start")
+
+ggsave(plot = rna_measurements, filename = "../results/rna_meas.png", width = width_descr, height = height_descr)
+
+```

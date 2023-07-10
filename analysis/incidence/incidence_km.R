@@ -16,11 +16,6 @@ pacman:: p_load(
 
 ##### data import ----
 
-ch <- readRDS("data_clean/art_ch.rds")
-#sa <- readRDS("data_clean/art_sa")
-
-##### preprocessing ----
-
 kaplan_ch <- readRDS("data_clean/df_inc_ch.rds")
 
 kaplan_test <- kaplan_ch %>% 
