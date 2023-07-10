@@ -42,46 +42,46 @@ cox <- cox_test #... #join them together
 cox.surv_obj <- Surv(cox$persontime_years, cox$case_incident_2m)
 
 #Model
-cox_model <- coxph(cox.surv_obj ~ cohort, data = cox)
+cox_model <- coxph(cox.surv_obj ~ cohort + age_art_start + sex, data = cox)
 
 #### results/plotting ----
-summary(cox_model)
+#The exponentiated coefficients in the second column of the first panel (and in the first column of the second panel) of the output are interpretable as multiplicative effects on the hazard. 
+#Thus, for example, holding the other covariates constant, an additional year of age reduces the yearly hazard of incident TB by a factor of eb2 = 0.9956 on average.
+sum_cox <- summary(cox_model)
 
-# Compute predicted survival probabilities for the Cox model
-cox_surv <- survfit(cox_model, newdata = cohort_df)
+# Find the row corresponding to the predictor of interest
+row_index <- which(rownames(sum_cox$coefficients) == "cohortSA")
 
- # Create the new data  
-cohort_df <- data.frame(cohort = as.factor(c("CH", "SA")))
+# Extract the exponentiated coefficient (hazard ratio)
+exp_coef <- sum_cox$conf.int[row_index, "exp(coef)"]
+lower_ci <- sum_cox$conf.int[row_index, "lower .95"]
+upper_ci <- sum_cox$conf.int[row_index, "upper .95"]
 
-surv_plot.cox <- ggsurvplot(
-  cox_surv,
-  data = cohort_df,
-  conf.int = TRUE,
-  legend.labs = c("Switzerland", "South Africa"),
-  palette = c("#FFA07A", "#B0C4DE"),
-  ggtheme = theme_bw(),
-  xlab = "Time",
-  ylab = "Probability of No Incident"
+# Create a data frame for plotting
+plot_data <- data.frame(
+  Predictor = "cohort",
+  Hazard_Ratio = exp_coef,
+  Lower_CI = lower_ci,
+  Upper_CI = upper_ci
 )
 
-print(surv_plot.cox)
+# Create the plot
+hazard_ratio <- ggplot(plot_data, aes(x = Hazard_Ratio, y = "", xmin = Lower_CI, xmax = Upper_CI)) +
+  geom_point(size = 2, color = "black") +
+  annotate("rect", xmin = -Inf, xmax = 1, ymin = -Inf, ymax = Inf, fill = "#FFA07A", alpha = 0.3) +
+  annotate("rect", xmin = 1, xmax = Inf, ymin = -Inf, ymax = Inf, fill = "#B0C4DE", alpha = 0.3) +
+  geom_errorbarh(aes(xmin = Lower_CI, xmax = Upper_CI), height = 0.1, linewidth = 1,  color = "black") +
+  scale_x_continuous(breaks = c(0, 0.5, 1, 1.5, 2, 2.5,  3), limits = c(0, 3), expand = c(0,0)) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "darkblue", linewidth = 1) +  # Add a dashed line at HR = 1 (no effect)
+  geom_text(aes(x = 0.5, y = 1.5, label = "Switzerland"), hjust = 0.5, vjust = 1, size = 5, fontface = "bold") +  
+  geom_text(aes(x = 2, y = 1.5, label = "South Africa"), hjust = 0.5, vjust = 1, size = 5, fontface = "bold") +
+  theme_bw() +
+  labs(x = "Hazard ratio", y = "")
 
-zoom_plot.cox <- ggsurvplot(
-  cox_surv,
-  data = cohort_df,
-  conf.int = TRUE,
-  legend.labs = c("Switzerland", "South Africa"),
-  palette = c("#FFA07A", "#B0C4DE"),
-  ggtheme = theme_bw(),
-  xlab = "Time",
-  ylab = "Probability of No Incident",
-  ylim = c(0.95,1)
-)
+# Print the plot
+print(hazard_ratio)
 
-print(zoom_plot.cox)
-
-ggsave(filename = "results/cox_full.png", plot = surv_plot.cox$plot, width = 10, height = 8, dpi = 300)
-ggsave(filename = "results/cox_zoom.png", plot = zoom_plot.cox$plot, width = 10, height = 8, dpi = 300)
+ggsave(filename = "results/hazard_ratio.png", plot = hazard_ratio, width = 10, height = 8, dpi = 300)
 
 ##### assumptions ----
 
