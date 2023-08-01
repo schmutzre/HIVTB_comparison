@@ -17,7 +17,6 @@ This document summarizes the data exploration and is intended to serve as an ove
 if(!require(pacman)) install.packages("pacman")
 
 pacman:: p_load(
-  tidyverse,
   haven,
   janitor,
   inspectdf,
@@ -25,8 +24,12 @@ pacman:: p_load(
   epitools,
   rayshader,#3dplot
   htmlwidgets,#3dplot
-  rgl#3dplot
-)
+  rgl,#3dplot
+  lme4,
+  merTools, #CI for multilevel
+  gridExtra,
+  tidyverse
+  )
 
 width_descr <- 11 / cm(1)
 height_descr <- 8 / cm(1)
@@ -128,15 +131,15 @@ plot_baseline_groups_ch
 
 ggsave(filename = "../results/baseline_groups_ch.jpeg", plot = plot_baseline_groups_ch, width = 10, height = 8, dpi = 300)
 
-pp <- ch %>%  
-  ggplot(aes(x=sqrt(cd4_baseline), y=log10(rna_baseline))) +
-  geom_hex(bins = 20, linewidth = 0.5, color = "black") +
-  scale_fill_viridis_c(option = "C")
+#pp <- ch %>%  
+ # ggplot(aes(x=sqrt(cd4_baseline), y=log10(rna_baseline))) +
+  #geom_hex(bins = 20, linewidth = 0.5, color = "black") +
+  #scale_fill_viridis_c(option = "C")
 
-plot_gg(pp, width = 4, height = 4, scale = 300, multicore = TRUE)
-widget = rglwidget()
+#plot_gg(pp, width = 4, height = 4, scale = 300, multicore = TRUE)
+#widget = rglwidget()
 
-saveWidget(widget, file = "../results/3dplotbaseline.html")
+#saveWidget(widget, file = "../results/3dplotbaseline.html")
 
 ###Source of infection / sex
 
@@ -182,10 +185,38 @@ tb20102022_ch %>%
 flextable(tabyl(tb20102022_ch, sex))
 
 #birth country
-flextable(tabyl(tb20102022_ch, tbd_pat_birth)) #140 = Switzerland
+labelled_tb.df <- as_factor(tb20102022_ch, levels="labels")
+tabyl(labelled_tb.df$tbd_pat_birth)
 
-#region
-flextable(tabyl(tb20102022_ch, region))
+## Define a function to map countries to continents
+get_continent <- function(country) {
+  africa_countries <- c("Algeria", "Angola", "Cameroon", "Côte dIvoire", "Ethiopia", "Eritrea", "Gambia", "Ghana",
+                        "Guinea", "Kenya", "Kongo (Brazzaville)", "Kongo (Kinshasa)", "Mauritania", "Nigeria",
+                        "Somalia", "South Africa", "Togo", "Zimbabwe", "Uganda")
+
+  if (country %in% africa_countries) {
+    return("Sub-Saharan Africa")
+  } else if (country %in% c("Egypt", "Morocco")) {
+    return("North Africa")
+  } else if (country %in% c("Russia", "Austria", "Romania", "Italy", "Spain", "Portugal", "Switzerland", "Russian Federation")) {
+    return("Europe")
+  } else if (country %in% c("United States", "Canada")) {
+    return("North America")
+  } else if (country %in% c("Argentina", "Chile", "Brasil", "Peru", "Bolivia")) {
+    return("South America")
+  } else if (country %in% c("Thailand", "Indonesia", "Cambodia", "Vietnam")) {
+    return("Asia")
+  }
+  else {
+    return("Unknown")
+  } 
+}
+
+## Use mutate to create the 'region_born' column
+result_region <- labelled_tb.df %>%
+  mutate(region_born = sapply(tbd_pat_birth, get_continent),
+         region_born = ifelse(id == 54167, "Sub-Saharan Africa", region_born),
+         region_born = ifelse(id %in% c(59032,90323), "Asia", region_born))
 
 #site of tb
 flextable(tabyl(tb20102022_ch, type_tb_shcs)) #TBC = Pulmonary
@@ -195,7 +226,8 @@ tb20102022_ch %>%
   summarize("25quantil" = quantile(tb_diag_cd4, 0.25, na.rm = TRUE),
               "50quantil" = quantile(tb_diag_cd4, 0.5, na.rm = TRUE),
               "75quantil" = quantile(tb_diag_cd4, 0.75, na.rm = TRUE),
-            "missing" = sum(is.na(tb_diag_cd4)))
+            "missing" = sum(is.na(tb_diag_cd4)),
+            "non-missing" = sum(!is.na(tb_diag_cd4)))
 
 
 #hiv rna at tb diagnosis
@@ -203,7 +235,8 @@ tb20102022_ch %>%
   summarize("25quantil" = quantile(tb_diag_rna, 0.25, na.rm = TRUE),
               "50quantil" = quantile(tb_diag_rna, 0.5, na.rm = TRUE),
               "75quantil" = quantile(tb_diag_rna, 0.75, na.rm = TRUE),
-            "missing" = sum(is.na(tb_diag_rna)))
+            "missing" = sum(is.na(tb_diag_rna)),
+            "non-missing" = sum(!is.na(tb_diag_rna)))
 
 #### Plots
 
@@ -211,7 +244,7 @@ valid_regions <- tb20102022_ch %>%
   group_by(region, agegroups) %>%
   summarise(n = n(), .groups = 'drop') %>%
   filter(n > 0) %>%
-  select(region) %>%
+  dplyr::select(region) %>% 
   distinct()  # To ensure we don't have duplicate regions
 
 # Create the complete data frame and filter for valid regions
@@ -326,31 +359,53 @@ time_to_tb <- ch %>%
             "25%" = quantile(time_to_tb, 0.25, na.rm = TRUE),
             "75%" = quantile(time_to_tb, 0.75, na.rm = TRUE))
 
-#incidence of viral suppression
+#incidence of viral non-suppression
 rna_supression_treshold <- 400
 cd4_suppression_treshold <- 350
 
 # Sorting the data by id and date
-lab_long <- ch_lab_long %>% arrange(id, labdate)
+lab_long <- ch_lab_long %>% arrange(id, labdate) %>% 
+  filter(labdate > art_start_date)
 
 # Creating the next_rna_value and next_cd4_value columns
 lab_long_next <- lab_long %>% 
   group_by(id) %>% 
-  mutate(next_rna = lead(rna, order_by = labdate),
+  mutate(next_rna = lead(rna, order_by = labdate), #?lead: find the next value in a vector
          next_cd4 = lead(cd4, order_by = labdate))
 
-# Filter the rows where both the current and next rna_value are <400 and cd4_value are >350
+# Filter the rows where both the current and next rna_value are >400 and cd4_value are <350
+non_suppression_dates <- lab_long_next %>%
+  group_by(id) %>%
+  filter(rna > rna_supression_treshold & next_rna > rna_supression_treshold & cd4 < cd4_suppression_treshold & next_cd4 < cd4_suppression_treshold) %>%
+  slice_min(labdate, n = 1) %>% 
+  dplyr::select(id, labdate)
+
 suppression_dates <- lab_long_next %>%
   group_by(id) %>%
   filter(rna < rna_supression_treshold & next_rna < rna_supression_treshold & cd4 > cd4_suppression_treshold & next_cd4 > cd4_suppression_treshold) %>%
   slice_min(labdate, n = 1) %>% 
-  select(id, labdate)
+  dplyr::select(id, labdate)
 
 # Joining the suppression_dates with hiv
+hiv_nonsup <- left_join(ch, non_suppression_dates, by = "id") %>% 
+  rename(viral_non_suppression = labdate)
+
 hiv_sup <- left_join(ch, suppression_dates, by = "id") %>% 
   rename(viral_suppression = labdate)
 
-viralsuppression_incidence <- hiv_sup %>%
+viral_non_suppression_incidence <- hiv_nonsup %>%
+  select(id, viral_non_suppression, art_start_date, exitdate) %>% 
+  mutate(persontime = ifelse(!is.na(viral_non_suppression),
+                            as.numeric(difftime(viral_non_suppression, art_start_date, units = "days")) / 360,
+                            ifelse(!is.na(exitdate),
+                                    as.numeric(difftime(exitdate, art_start_date, units = "days")) / 360,  
+                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date, units = "days")) /360  
+                             ))) %>% 
+  summarise(sup_incidence = sum(!is.na(viral_non_suppression)), 
+            person_years = sum(persontime)/1000) %>% 
+  mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95))
+
+viral_suppression_incidence <- hiv_sup %>%
   select(id, viral_suppression, art_start_date, exitdate) %>% 
   mutate(persontime = ifelse(!is.na(viral_suppression),
                             as.numeric(difftime(viral_suppression, art_start_date, units = "days")) / 360,
@@ -359,10 +414,16 @@ viralsuppression_incidence <- hiv_sup %>%
                                     as.numeric(difftime(as.Date("2022-12-31"), art_start_date, units = "days")) /360  
                              ))) %>% 
   summarise(sup_incidence = sum(!is.na(viral_suppression)), 
-            person_years = sum(persontime)/100000) %>% 
+            person_years = sum(persontime)/1000) %>% 
   mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95))
-
 #time to viral suppression
+
+time_to_virnonsup <- hiv_nonsup %>% 
+  select(id, viral_non_suppression, art_start_date) %>% 
+  mutate(time_to_sup = as.numeric(viral_non_suppression-art_start_date)) %>% 
+  summarise(med = median(time_to_sup, na.rm = TRUE),
+            "25" = quantile(time_to_sup, 0.25, na.rm = TRUE),
+            "75" = quantile(time_to_sup, 0.75, na.rm = TRUE))
 
 time_to_virsup <- hiv_sup %>% 
   select(id, viral_suppression, art_start_date) %>% 
@@ -385,7 +446,7 @@ lab_distribution <- ch_lab_long %>%
 ggsave(plot = lab_distribution, filename = "../results/lab_distribution.png", width = width_descr, height = height_descr)
 ```
 
-```{r}
+```{r plots for meeting}
 ch_lab_long <- ch_lab_long %>%
   mutate(year = round(time_diff / 365))
 
@@ -406,7 +467,6 @@ ch_lab_sum <- ch_lab_long %>%
     higher_rna = quantile(rna, 0.75, na.rm =TRUE),
     mean_rna = mean(rna, na.rm = TRUE)
   )
-
 
 ## cd4 over years
 cd4_quantile <- ch_lab_long %>% 
@@ -429,18 +489,8 @@ cd4_quantile
 
 ggsave(plot = cd4_quantile, filename = "../results/cd4_quantile.png", width = width_descr, height = height_descr)
 
-## cd4 1 year
+## cd4 model vs observed 
 
-cd4_year <- ch_lab_long %>% 
-  filter(time_diff > -150 & time_diff < 360) %>% 
-  ggplot(aes(x = time_diff)) +
-  geom_line(aes(group = factor(id), y = cd4), color = "grey", alpha = .5) +
-  geom_hline(yintercept =350) +
-  geom_smooth(aes(y = cd4), method = "lm", color = "red", se = FALSE) +
-  theme_bw() +
-  labs(x = "Days since ART start")
-
-ggsave(plot = cd4_year, filename = "../results/cd4_year.png", width = width_descr, height = height_descr)
 
 ### rna
 
@@ -494,5 +544,346 @@ rna_measurements <- zero_rna %>%
   labs(y=("number of rna measurements"), x = "year difference to ART start")
 
 ggsave(plot = rna_measurements, filename = "../results/rna_meas.png", width = width_descr, height = height_descr)
+
+```
+
+```{r plot presenting with TB}
+lab_longTB.cd4 <- ch_lab_long %>% 
+  filter(date_tb >= art_start_date-365,
+         !is.na(cd4)) %>% 
+  mutate(prevalence = if_else(date_tb < art_start_date + 60, TRUE, FALSE),
+         ARTtoTB = date_tb-art_start_date) %>%
+  group_by(id) %>%
+  mutate(min_diff_date = labdate[which.min(abs(labdate - date_tb))]) %>%
+  ungroup() %>% 
+  mutate(min_diff_date_days = as.numeric(min_diff_date-art_start_date),
+         min_diff_date_cd4 = if_else(min_diff_date_days == time_diff, sqrt(cd4), NA_real_))
+
+lab_longTB.rna <- ch_lab_long %>% 
+  filter(date_tb >= art_start_date-365,
+         !is.na(rna)) %>% 
+  mutate(prevalence = if_else(date_tb < art_start_date + 60, TRUE, FALSE),
+         ARTtoTB = date_tb-art_start_date,
+         log10rna = log10(rna + 1)) %>%
+  group_by(id) %>%
+  mutate(min_diff_date = labdate[which.min(abs(labdate - date_tb))]) %>%
+  ungroup() %>% 
+  mutate(min_diff_date_days = as.numeric(min_diff_date-art_start_date),
+         min_diff_date_rna = if_else(min_diff_date_days == time_diff, log10rna, NA_real_))
+
+colors <- rainbow(55)
+
+lab_longTB.rna %>% 
+  group_by(id) %>% 
+  summarise(sum = sum(!is.na(min_diff_date_rna)))
+
+#cd4
+plot.cd4_points <- lab_longTB.cd4 %>% 
+  filter(prevalence == TRUE) %>% 
+  ggplot(aes(x = time_diff, color = factor(id))) +
+  geom_line(aes(group = factor(id), y = sqrt(cd4)), alpha = .5) +
+  geom_point(aes(group = factor(id), y = sqrt(cd4)), alpha = .5) +
+  geom_hline(yintercept = sqrt(350)) +
+  geom_point(aes(x=ARTtoTB, y = min_diff_date_cd4), shape = 13, size = 3)+
+  labs(x = "Days since ART start") +
+ylab("Square root of CD4 count") +
+  xlim(c(-360,720))+
+  theme_bw() +
+  theme(legend.position = "none") 
+
+print(plot.cd4_points)
+
+#rna
+plot.rna_points <- lab_longTB.rna %>% 
+  filter(prevalence == TRUE) %>% 
+  ggplot(aes(x = time_diff, color = factor(id))) +
+  geom_line(aes(group = factor(id), y = log10rna), alpha = .5) +
+  geom_point(aes(group = factor(id), y = log10rna), alpha = .5) +
+  geom_hline(yintercept = log10(400)) +
+  geom_point(aes(x=ARTtoTB, y = min_diff_date_rna), shape = 13, size = 3)+
+  labs(x = "Days since ART start") +
+  xlim(c(-360,720))+
+  ylim(c(-.5,7.5))+
+  ylab(expression(log[10]("cd4"))) +
+  theme_bw() +
+  ylab("log10(rna+1)")+
+  theme(legend.position = "none") 
+
+print(plot.rna_points)
+
+## saving 
+
+points.presenting <- grid.arrange(plot.cd4_points, plot.rna_points, ncol=2, 
+             top = "TB dates and lab data for 55 Patients presenting with TB") 
+
+ggsave(plot = points.presenting, filename = "../results/plots_lab/points.presenting.png", width = width_descr*2, height = height_descr)
+```
+
+```{r plot incident cases}
+#cd4
+
+plot.cd4_pointsINC <- lab_longTB.cd4 %>% 
+  filter(prevalence == FALSE) %>% 
+  ggplot(aes(x = time_diff, color = factor(id))) +
+  geom_line(aes(group = factor(id), y = sqrt(cd4)), alpha = .5) +
+  geom_point(aes(group = factor(id), y = sqrt(cd4))) +
+  geom_hline(yintercept = sqrt(350)) +
+  geom_point(aes(x=ARTtoTB, y = min_diff_date_cd4), shape = 13, size = 3)+
+  labs(x = "Days since ART start") +
+  ylab("Square root of CD4 count") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(0, 3000))
+
+print(plot.cd4_pointsINC)
+
+#rna
+plot.rna_pointsINC <- lab_longTB.rna %>% 
+  filter(prevalence == FALSE) %>% 
+  ggplot(aes(x = time_diff, color = factor(id))) +
+  geom_line(aes(group = factor(id), y = log10rna), alpha = .5) +
+  geom_point(aes(group = factor(id), y = log10rna)) +
+  geom_hline(yintercept = log10(400)) +
+  geom_point(aes(x = ARTtoTB, y = min_diff_date_rna), shape = 13, size = 3) +
+  labs(x = "Days since ART start") +
+  ylim(c(-.5, 7.5)) +
+  ylab(expression(log[10]("cd4"))) +
+  theme_bw() +
+  ylab("log10(rna+1)") +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(0, 3000))
+
+print(plot.rna_pointsINC)
+
+points.presentingINC <- grid.arrange(plot.cd4_pointsINC, plot.rna_pointsINC, ncol=2, 
+             top = "TB dates and lab data for 15 TB incident patients") 
+
+ggsave(plot = points.presentingINC, filename = "../results/plots_lab/points.presentingINC.png", width = width_descr*2, height = height_descr)
+
+```
+
+```{r plotly}
+library(plotly)
+
+ggplotly(plot.cd4_points)
+ggplotly(plot.rna_points)
+ggplotly(plot.cd4_pointsINC)
+ggplotly(plot.rna_pointsINC)
+
+```
+
+```{r}
+lab_longTBdate <- ch_lab_long %>% 
+  filter(!is.na(date_tb)) %>% 
+  mutate(prevalence = if_else(date_tb < art_start_date + 60, TRUE, FALSE),
+         timediffTB = as.numeric(labdate - date_tb))
+
+count_nonNA <- lab_longTBdate %>% 
+  filter(timediffTB > -360, timediffTB < 360) %>% 
+  group_by(id) %>% 
+  summarize(cd4 = sum(!is.na(cd4)),
+            rna = sum(!is.na(rna)))
+
+# Filter data for before and after 0 for cd4
+lab_longTBdate_before.cd4 <- lab_longTBdate %>% 
+  filter(timediffTB <= 0,
+         prevalence == TRUE,
+         !is.na(cd4)) 
+
+lab_longTBdate_after.cd4 <- lab_longTBdate %>% 
+  filter(timediffTB > 0,
+         prevalence == TRUE,
+         !is.na(cd4))
+
+# Filter data for before and after 0 for rna
+lab_longTBdate_before.rna <- lab_longTBdate %>% 
+  filter(timediffTB <= 0,
+         prevalence == TRUE,
+         !is.na(rna)) 
+
+lab_longTBdate_after.rna <- lab_longTBdate %>% 
+  filter(timediffTB > 0,
+         prevalence == TRUE,
+        !is.na(rna))
+
+# cd4 prev
+plot.cd4_tb <- ggplot() +
+  geom_point(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), size = .8) +
+  geom_point(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), size = .8) +
+  geom_line(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), alpha = .5) +
+  geom_line(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), alpha = .5) +
+  geom_smooth(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = 1), method = "lm", se = FALSE, color = "blue") +
+  geom_smooth(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = 1), method = "lm", se = FALSE, color = "red") +
+  geom_hline(yintercept = sqrt(350)) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(-360, 360)) +
+  xlab("Days to TB date") +
+  ylab("Square root of CD4 count") 
+
+plot.rna_tb <- ggplot() +
+  geom_point(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna + 1), group = factor(id), color = factor(id)), size = .8) +
+  geom_point(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna + 1), group = factor(id), color = factor(id)), size = .8) +
+  geom_line(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna + 1), group = factor(id), color = factor(id)), alpha = .5) +
+  geom_line(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna + 1), group = factor(id), color = factor(id)), alpha = .5) +
+  geom_smooth(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna + 1), group = 1), method = "lm", se = FALSE, color = "blue") +
+  geom_smooth(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna + 1), group = 1), method = "lm", se = FALSE, color = "red") +
+  geom_hline(yintercept = log10(400)) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(-360, 360)) +
+  xlab("Days to TB date") +
+  ylab("log10 of viral load") 
+
+print(plot.cd4_tb)
+print(plot.rna_tb)
+
+library(cowplot)
+tbtrend.presenting <- plot_grid(plot.cd4_tb, plot.rna_tb)
+print(tbtrend.presenting)
+
+ggsave(plot = tbtrend.presenting, filename = "../results/plots_lab/tbtrend.presenting.png", width = width_descr*2, height = height_descr)
+```
+
+```{r}
+tb20102022long <- readRDS("../data_clean/tb20102022long.rds")
+
+beforeTB <- tb20102022long %>% 
+  filter(labdate < date_tb) %>% 
+  dplyr::arrange(id,labdate)
+
+afterTB <- tb20102022long %>% 
+  filter(labdate >= date_tb) %>% 
+  dplyr::arrange(id,labdate)
+
+rna_supression_treshold <- 400
+cd4_suppression_treshold <- 350
+
+# Creating the next_rna_value and next_cd4_value columns
+beforeNext <- beforeTB %>% 
+  group_by(id) %>% 
+  mutate(next_rna = lead(rna, order_by = labdate), #?lead: find the next value in a vector
+         next_cd4 = lead(cd4, order_by = labdate))
+
+afterNext <- afterTB %>% 
+  group_by(id) %>% 
+  mutate(next_rna = lead(rna, order_by = labdate), #?lead: find the next value in a vector
+         next_cd4 = lead(cd4, order_by = labdate))
+
+# Filter the rows where both the current and next rna_value are >400 and cd4_value are <350
+non_suppression_before <- beforeNext %>%
+  group_by(id) %>%
+  filter(rna > rna_supression_treshold & next_rna > rna_supression_treshold & cd4 < cd4_suppression_treshold & next_cd4 < cd4_suppression_treshold) %>%
+  slice_min(labdate, n = 1) %>% 
+  dplyr::select(id, labdate)
+
+non_suppression_after<- afterNext %>%
+  group_by(id) %>%
+  filter(rna > rna_supression_treshold & next_rna > rna_supression_treshold & cd4 < cd4_suppression_treshold & next_cd4 < cd4_suppression_treshold) %>%
+  slice_min(labdate, n = 1) %>% 
+  dplyr::select(id, labdate)
+
+suppression_before <- beforeNext %>%
+  group_by(id) %>%
+  filter(rna < rna_supression_treshold & next_rna < rna_supression_treshold & cd4 > cd4_suppression_treshold & next_cd4 > cd4_suppression_treshold) %>%
+  slice_min(labdate, n = 1) %>% 
+  dplyr::select(id, labdate)
+
+suppression_after <- afterNext %>%
+  group_by(id) %>%
+  filter(rna < rna_supression_treshold & next_rna < rna_supression_treshold & cd4 > cd4_suppression_treshold & next_cd4 > cd4_suppression_treshold) %>%
+  slice_min(labdate, n = 1) %>% 
+  dplyr::select(id, labdate)
+
+# Joining the suppression_dates with hiv
+nonsup_before <- left_join(tb20102022_ch, non_suppression_before, by = "id") %>% 
+  rename(viral_non_suppression = labdate)
+
+nonsup_after <- left_join(tb20102022_ch, non_suppression_after, by = "id") %>% 
+  rename(viral_non_suppression = labdate)
+
+sup_before <- left_join(tb20102022_ch, suppression_before, by = "id") %>% 
+  rename(viral_suppression = labdate)
+
+sup_after <- left_join(tb20102022_ch, suppression_after, by = "id") %>% 
+  rename(viral_suppression = labdate)
+
+viral_non_supBefore <- nonsup_before %>%
+  select(id, viral_non_suppression, art_start_date, exitdate) %>% 
+  mutate(persontime = ifelse(!is.na(viral_non_suppression),
+                            as.numeric(difftime(viral_non_suppression, art_start_date, units = "days")) / 360,
+                            ifelse(!is.na(exitdate),
+                                    as.numeric(difftime(exitdate, art_start_date, units = "days")) / 360,  
+                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date, units = "days")) /360  
+                             ))) %>% 
+  summarise(sup_incidence = sum(!is.na(viral_non_suppression)), 
+            person_years = sum(persontime)/1000) %>% 
+  mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95), type = as.factor("before TB"))
+
+viral_non_supAfter <- nonsup_after %>%
+  select(id, viral_non_suppression, art_start_date, exitdate) %>% 
+  mutate(persontime = ifelse(!is.na(viral_non_suppression),
+                            as.numeric(difftime(viral_non_suppression, art_start_date, units = "days")) / 360,
+                            ifelse(!is.na(exitdate),
+                                    as.numeric(difftime(exitdate, art_start_date, units = "days")) / 360,  
+                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date, units = "days")) /360  
+                             ))) %>% 
+  summarise(sup_incidence = sum(!is.na(viral_non_suppression)), 
+            person_years = sum(persontime)/1000) %>% 
+  mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95), type = as.factor("after TB"))
+
+viral_supBefore <- sup_before %>%
+  select(id, viral_suppression, art_start_date, exitdate) %>% 
+  mutate(persontime = ifelse(!is.na(viral_suppression),
+                            as.numeric(difftime(viral_suppression, art_start_date, units = "days")) / 360,
+                            ifelse(!is.na(exitdate),
+                                    as.numeric(difftime(exitdate, art_start_date, units = "days")) / 360,  
+                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date, units = "days")) /360  
+                             ))) %>% 
+  summarise(sup_incidence = sum(!is.na(viral_suppression)), 
+            person_years = sum(persontime)/1000) %>% 
+  mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95), type = as.factor("before TB"))
+
+viral_supAfter <- sup_after %>%
+  select(id, viral_suppression, art_start_date, exitdate) %>% 
+  mutate(persontime = ifelse(!is.na(viral_suppression),
+                            as.numeric(difftime(viral_suppression, art_start_date, units = "days")) / 360,
+                            ifelse(!is.na(exitdate),
+                                    as.numeric(difftime(exitdate, art_start_date, units = "days")) / 360,  
+                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date, units = "days")) /360  
+                             ))) %>% 
+  summarise(sup_incidence = sum(!is.na(viral_suppression)), 
+            person_years = sum(persontime)/1000) %>% 
+  mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95), type = as.factor("after TB"))
+
+df_viralsup <- rbind(viral_supBefore, viral_supAfter)
+df_viralnonsup<- rbind(viral_non_supBefore, viral_non_supAfter)
+
+incidence_sup <- df_viralsup %>% 
+  ggplot() +
+  geom_point(aes(x = type, y = pois$rate)) +
+  geom_errorbar(aes(x= type, ymin = pois$lower, ymax = pois$upper), width = 0.1)+
+  labs(x= "", y = "Incidence per 1,000 person-years", title = "Viral suppression") +
+  theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(limits = c(0,200), expand = c(0,0))
+
+incidence_sup  
+  
+incidence_nonsup <- df_viralnonsup %>% 
+  ggplot() +
+  geom_point(aes(x = type, y = pois$rate)) +
+  geom_errorbar(aes(x= type, ymin = pois$lower, ymax = pois$upper), width = 0.1)+
+  labs(x= "", y = "", title = "Viral non-suppression") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  scale_y_continuous(limits = c(0,200), expand = c(0,0))
+
+incidence_nonsup
+
+incidenceviral <- plot_grid(incidence_sup, incidence_nonsup, ncol=2)
+
+ggsave(plot = incidenceviral, filename = "../results/plots_lab/incidenceviral.png", width = width_descr*1.5, height = height_descr)
+
 
 ```

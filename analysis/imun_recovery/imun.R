@@ -55,6 +55,12 @@ ggplot(rec, aes(sample = sqrt(cd4))) +
 model_cd4 <- lmer(cd4 ~ time_diff + cohort + sex + (1|id), data = rec)
 summary(model_cd4)
 
+## Only for Switzeland Plot
+
+model_cd4ch <- lmer(sqrt(cd4) ~ time_diff + (1|id), data = rec)
+
+
+
 #TODO residuals plotten und auf normalität checken
 #TODO spline model fitten mit mgcv package (gamm funktion benutzen)
 

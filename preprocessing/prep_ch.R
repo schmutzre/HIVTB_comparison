@@ -9,14 +9,15 @@ pacman:: p_load(
 
 #### Data
 
+
 lab2 <- read_dta("data_raw/lab.dta")
 complete_ch <- read_dta("data_raw/shcs_509_hivall.dta")
 var_region <- read_dta("data_raw/var_region.dta") %>% 
   mutate(region = as.numeric(region))
 
 studypopulation_ch <- complete_ch %>% 
-  filter(art_start_date <=as.Date("2022-12-31"),
-         art_start_date >=as.Date("2010-01-01"),
+  filter(art_start_date <= as.Date("2022-12-31"),
+         art_start_date >= as.Date("2010-01-01"),
          !is.na(sex),
          !is.na(born),
          year(art_start_date) - born >= 16,
@@ -65,7 +66,7 @@ process_data <- function(file_name, output_name) {
     arrange(abs(art_start_date - labdate)) %>% 
     group_by(id) %>% 
     distinct(id, .keep_all = TRUE) %>% 
-    ungroup() #'TODO ask Lukas if better before or after
+    ungroup() 
   
   baseline_rna_ch <- studypopulation_ch %>% 
     left_join(lab, by = "id") %>% 
@@ -133,7 +134,7 @@ process_data <- function(file_name, output_name) {
   tb_cd4_ch <- studypopulation_ch_joined2 %>%
     left_join(lab, by = "id") %>%
     mutate(
-      tb_diag_cd4 = ifelse(labdate >= (date_tb - 30) & labdate <= (date_tb + 15), cd4, NA)
+      tb_diag_cd4 = ifelse(labdate >= (date_tb - 180) & labdate <= (date_tb + 15), cd4, NA)
     ) %>%
     filter(!is.na(tb_diag_cd4)) %>%
     arrange(id, abs(date_tb - labdate)) %>%
@@ -145,7 +146,7 @@ process_data <- function(file_name, output_name) {
   tb_rna_ch <- studypopulation_ch_joined2 %>%
     left_join(lab, by = "id") %>%
     mutate(
-      tb_diag_rna = ifelse(labdate >= (date_tb - 30) & labdate <= (date_tb + 15), rna, NA)
+      tb_diag_rna = ifelse(labdate >= (date_tb - 180) & labdate <= (date_tb + 15), rna, NA)
     ) %>%
     filter(!is.na(tb_diag_rna)) %>%
     arrange(id, abs(date_tb - labdate)) %>%
@@ -159,11 +160,10 @@ process_data <- function(file_name, output_name) {
     full_join(tb_rna_ch %>% select(id, tb_diag_rna), by = "id")
   
   studypopulation_ch_joined3 <- studypopulation_ch_joined2 %>%
-    left_join(tb_cd4_rna_ch, by = "id") %>% 
+    left_join(tb_cd4_rna_ch, by = "id")
     
-
 # At the end, save the data
-saveRDS(studypopulation_ch_joined3, paste0("data_clean/", output_name, ".rds"))
+saveRDS(studypopulation_ch_joined3, file = paste0("data_clean/", output_name, ".rds"))
 }
 
 process_data(studypopulation_ch, "art_ch")
