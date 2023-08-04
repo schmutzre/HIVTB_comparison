@@ -434,6 +434,7 @@ time_to_virsup <- hiv_sup %>%
 
 ```
 
+## Plots
 ```{r}
 lab_distribution <- ch_lab_long %>% 
   filter(!is.na(cd4) | !is.na(rna)) %>% 
@@ -489,9 +490,6 @@ cd4_quantile
 
 ggsave(plot = cd4_quantile, filename = "../results/cd4_quantile.png", width = width_descr, height = height_descr)
 
-## cd4 model vs observed 
-
-
 ### rna
 
 rna_quantile <- ch_lab_long %>% 
@@ -514,18 +512,6 @@ rna_quantile
 
 ggsave(plot = rna_quantile, filename = "../results/rna_quantile.png", width = width_descr, height = height_descr)
 
-# rna 1 year
-rna_year <- ch_lab_long %>%
-  filter(time_diff > -150 & time_diff < 360) %>% 
-  ggplot(aes(x = time_diff)) +
-  geom_line(aes(group = factor(id), y = log10(rna)), color = "grey", alpha = .5) +
-  geom_smooth(aes(y = log10(rna)), method = "lm", color = "red", se = FALSE)+
-  geom_hline(yintercept = log10(400)) +
-  labs(x = "Days since ART start") +
-  theme_bw()
-
-ggsave(plot = rna_year, filename = "../results/rna_year.png", width = width_descr, height = height_descr)
-
 # checking the weird shape of the rna plot
 zero_rna <- ch_lab_long %>% 
   group_by(year) %>% 
@@ -544,6 +530,190 @@ rna_measurements <- zero_rna %>%
   labs(y=("number of rna measurements"), x = "year difference to ART start")
 
 ggsave(plot = rna_measurements, filename = "../results/rna_meas.png", width = width_descr, height = height_descr)
+
+```
+
+```{r plot trends cd4 and rna}
+#TODO: I want a plot with rawdata (grey) plus simple fitted in red (left), then on the right side one lmer fitted including CI and one spline fitted including CI (right). For both CD4 (top) and RNA (bottom).
+
+df.pred <- ch_lab_long %>%
+  filter(time_diff > -30 & time_diff < 100)
+
+#### raw plot CD4 ----
+
+cd4_yearRAW <- df.pred %>%
+  ggplot(aes(x = time_diff)) +
+  geom_line(aes(group = factor(id), y = sqrt(cd4)), color = "grey", alpha = .2) +
+  geom_hline(yintercept = sqrt(350)) +
+  theme_bw() +
+  labs(x = "", title = "raw data + loess") +
+  geom_smooth(aes(y = sqrt(cd4)), method = "loess", se = TRUE, color = "red", fill = "blue") +
+  scale_x_continuous(limits = c(-30,100)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,50)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(cd4_yearRAW)
+
+#### raw plot HIV-RNA ----
+
+rna_yearRAW <- df.pred %>%
+  ggplot(aes(x = time_diff)) +
+  geom_line(aes(group = factor(id), y = log10(rna+1)), color = "grey", alpha = .2) +
+  geom_hline(yintercept = log10(400)) +
+  theme_bw() +
+  labs(x = "Days since ART start", title = "") +
+  geom_smooth(aes(y = log10(rna+1)), method = "loess", se = TRUE, color = "red", fill = "blue") +
+  scale_x_continuous(limits = c(-30,100)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,10)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(rna_yearRAW)
+
+#### fitted plot CD4 ----
+
+new_data <- data.frame(
+  time_diff = seq(min(df.pred$time_diff), max(df.pred$time_diff), length.out = 1000),
+  id = rep(unique(df.pred$id)[1], 1000)  # use the first unique id
+)
+
+## mixed-effect model
+
+model_cd4 <- lmer(sqrt(cd4) ~ time_diff + (1|id), data = df.pred)
+
+# Bootstrap the predictions
+set.seed(123)  # for reproducibility
+boot_preds.cd4 <- bootMer(model_cd4, FUN = function(.x) predict(.x, newdata = new_data, re.form = NA), nsim = 100)
+
+# Calculate percentiles for prediction intervals
+lower_bound.cd4 <- apply(boot_preds.cd4$t, 2, quantile, probs = 0.025)
+upper_bound.cd4 <- apply(boot_preds.cd4$t, 2, quantile, probs = 0.975)
+fitted.cd4 <- apply(boot_preds.cd4$t, 2, mean)
+
+# Combine into a data frame
+boot_df.cd4 <- data.frame(time_diff = new_data$time_diff, lower_bound.cd4, upper_bound.cd4, fitted.cd4)
+
+## spline model 
+
+# Fit a GAM with a spline term
+model_cd4_spline <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = df.pred, method = "REML")
+
+# Function to fit the model and generate predictions
+fit_and_predictCD4 <- function(data, indices) {
+  # Fit the model with the specified indices
+  fit <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = data[indices, ], method = "REML")
+  
+  # Generate predictions
+  pred <- predict(fit, newdata = new_data)
+  
+  return(pred)
+}
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Bootstrap predictions
+boot_preds.cd4_spline <- boot(data = df.pred, statistic = fit_and_predictCD4, R = 100)
+
+# Calculate percentiles for prediction intervals
+lower_bound.cd4_spline <- apply(boot_preds.cd4_spline$t, 2, quantile, probs = 0.025)
+upper_bound.cd4_spline <- apply(boot_preds.cd4_spline$t, 2, quantile, probs = 0.975)
+fitted.cd4_spline <- apply(boot_preds.cd4_spline$t, 2, mean)
+
+# Combine into a data frame
+boot_df.cd4_spline <- data.frame(time_diff = new_data$time_diff, lower_bound.cd4_spline, upper_bound.cd4_spline, fitted.cd4_spline)
+
+# Merge with the existing data frame
+boot_df.cd4 <- merge(boot_df.cd4, boot_df.cd4_spline, by = "time_diff")
+
+## Plot 
+
+cd4_yearFIT <- boot_df.cd4 %>%
+  ggplot(aes(x = time_diff)) +
+  geom_hline(yintercept = sqrt(350)) +
+  geom_line(aes(y = fitted.cd4), color = "red") +
+  geom_ribbon(aes(ymin = lower_bound.cd4, ymax = upper_bound.cd4), alpha = 0.4) +
+  geom_line(aes(y = fitted.cd4_spline), color = "blue") +
+  geom_ribbon(aes(ymin = lower_bound.cd4_spline, ymax = upper_bound.cd4_spline), alpha = 0.4) +
+  theme_bw() +
+  labs(x = "", y = "",title = "LMEM (red) + GAM with a spline (blue)") +
+  scale_x_continuous(limits = c(-30,100)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,50)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(cd4_yearFIT)
+
+#### fitted plot HIV-RNA ----
+## mixed-effect model
+model_rna <- lmer(log10(rna+1) ~ time_diff + (1|id), data = df.pred)
+
+# Bootstrap the predictions
+set.seed(123)  # for reproducibility
+boot_preds.rna <- bootMer(model_rna, FUN = function(.x) predict(.x, newdata = new_data, re.form = NA), nsim = 100)
+
+# Calculate percentiles for prediction intervals
+lower_bound.rna <- apply(boot_preds.rna$t, 2, quantile, probs = 0.025)
+upper_bound.rna <- apply(boot_preds.rna$t, 2, quantile, probs = 0.975)
+fitted.rna <- apply(boot_preds.rna$t, 2, mean)
+
+# Combine into a data frame
+boot_df.rna <- data.frame(time_diff = new_data$time_diff, lower_bound.rna, upper_bound.rna, fitted.rna)
+
+## spline model 
+
+# Fit a GAM with a spline term
+model_rna_spline <- gam(log10(rna+1) ~ s(time_diff) + s(id, bs="re"), data = df.pred, method = "REML")
+
+# Function to fit the model and generate predictions
+fit_and_predictRNA <- function(data, indices) {
+  # Fit the model with the specified indices
+  fit <- gam(log10(rna+1) ~ s(time_diff) + s(id, bs="re"), data = data[indices, ], method = "REML")
+  
+  # Generate predictions
+  pred <- predict(fit, newdata = new_data)
+  
+  return(pred)
+}
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Bootstrap predictions
+boot_preds.rna_spline <- boot(data = df.pred, statistic = fit_and_predictRNA, R = 100)
+
+# Calculate percentiles for prediction intervals
+lower_bound.rna_spline <- apply(boot_preds.rna_spline$t, 2, quantile, probs = 0.025)
+upper_bound.rna_spline <- apply(boot_preds.rna_spline$t, 2, quantile, probs = 0.975)
+fitted.rna_spline <- apply(boot_preds.rna_spline$t, 2, mean)
+
+# Combine into a data frame
+boot_df.rna_spline <- data.frame(time_diff = new_data$time_diff, lower_bound.rna_spline, upper_bound.rna_spline, fitted.rna_spline)
+
+# Merge with the existing data frame
+boot_df.rna <- merge(boot_df.rna, boot_df.rna_spline, by = "time_diff")
+
+## Plot 
+
+rna_yearFIT <- boot_df.rna %>%
+  ggplot(aes(x = time_diff)) +
+  geom_hline(yintercept = log10(400)) +
+  geom_line(aes(y = fitted.rna), color = "red") +
+  geom_ribbon(aes(ymin = lower_bound.rna, ymax = upper_bound.rna), alpha = 0.4) +
+  geom_line(aes(y = fitted.rna_spline), color = "blue") +
+  geom_ribbon(aes(ymin = lower_bound.rna_spline, ymax = upper_bound.rna_spline), alpha = 0.4) +
+  theme_bw() +
+  labs(x = "Days since ART start", y = "", title = "") +
+  scale_x_continuous(limits = c(-30,100)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,10)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(rna_yearFIT)
+
+#### fusion + export ----
+
+trends <- grid.arrange(cd4_yearRAW, cd4_yearFIT, rna_yearRAW, rna_yearFIT, ncol=2) 
+
+ggsave(plot = trends, filename = "../results/plots_lab/trends_slope.png", width = width_descr*2, height = height_descr*2)
+
 
 ```
 
@@ -672,11 +842,12 @@ ggplotly(plot.rna_pointsINC)
 
 ```
 
-```{r}
+```{r trends before after}
 lab_longTBdate <- ch_lab_long %>% 
   filter(!is.na(date_tb)) %>% 
   mutate(prevalence = if_else(date_tb < art_start_date + 60, TRUE, FALSE),
-         timediffTB = as.numeric(labdate - date_tb))
+         timediffTB = as.numeric(labdate - date_tb)) %>% 
+  filter(timediffTB > -360, timediffTB < 360) 
 
 count_nonNA <- lab_longTBdate %>% 
   filter(timediffTB > -360, timediffTB < 360) %>% 
@@ -706,46 +877,107 @@ lab_longTBdate_after.rna <- lab_longTBdate %>%
          prevalence == TRUE,
         !is.na(rna))
 
-# cd4 prev
+## trends
+model_cd4before<- lmer(sqrt(cd4) ~ time_diff + (1|id), data = lab_longTBdate_before.cd4)
+model_cd4after<- lmer(sqrt(cd4) ~ time_diff + (1|id), data = lab_longTBdate_after.cd4)
+model_rnabefore <- lmer(log10(rna+1) ~ time_diff + (1|id), data = lab_longTBdate_before.rna)
+model_rnaafter <- lmer(log10(rna+1) ~ time_diff + (1|id), data = lab_longTBdate_after.rna)
+
+new_databefore <- data.frame(
+  time_diff = seq(-360, 0, length.out = 1000),
+  id = rep(unique(df.pred$id)[1], 1000)  # use the first unique id
+)
+
+new_dataafter <- data.frame(
+  time_diff = seq(0, 360, length.out = 1000),
+  id = rep(unique(df.pred$id)[1], 1000)  # use the first unique id
+)
+
+# Bootstrap the predictions
+set.seed(123)  # for reproducibility
+
+boot_preds.cd4before <- bootMer(model_cd4before, FUN = function(.x) predict(.x, newdata = new_databefore, re.form = NA), nsim = 100)
+
+boot_preds.cd4after <- bootMer(model_cd4after, FUN = function(.x) predict(.x, newdata = new_dataafter, re.form = NA), nsim = 100)
+
+boot_preds.rnabefore <- bootMer(model_rnabefore, FUN = function(.x) predict(.x, newdata = new_databefore, re.form = NA), nsim = 100)
+
+boot_preds.rnaafter <- bootMer(model_rnaafter, FUN = function(.x) predict(.x, newdata = new_dataafter, re.form = NA), nsim = 100)
+
+# Calculate percentiles for prediction intervals
+lower_bound.cd4before <- apply(boot_preds.cd4before$t, 2, quantile, probs = 0.025)
+upper_bound.cd4before <- apply(boot_preds.cd4before$t, 2, quantile, probs = 0.975)
+fitted.cd4before <- apply(boot_preds.cd4before$t, 2, mean)
+
+lower_bound.cd4after <- apply(boot_preds.cd4after$t, 2, quantile, probs = 0.025)
+upper_bound.cd4after <- apply(boot_preds.cd4after$t, 2, quantile, probs = 0.975)
+fitted.cd4after <- apply(boot_preds.cd4after$t, 2, mean)
+
+lower_bound.rnabefore <- apply(boot_preds.rnabefore$t, 2, quantile, probs = 0.025)
+upper_bound.rnabefore <- apply(boot_preds.rnabefore$t, 2, quantile, probs = 0.975)
+fitted.rnabefore <- apply(boot_preds.rnabefore$t, 2, mean)
+
+lower_bound.rnaafter <- apply(boot_preds.rnaafter$t, 2, quantile, probs = 0.025)
+upper_bound.rnaafter <- apply(boot_preds.rnaafter$t, 2, quantile, probs = 0.975)
+fitted.rnaafter <- apply(boot_preds.rnaafter$t, 2, mean)
+
+# Combine into a data frame
+boot_df.cd4before <- data.frame(time_diff = new_databefore$time_diff, lower_bound.cd4before, upper_bound.cd4before, fitted.cd4before)
+
+boot_df.cd4after <- data.frame(time_diff = new_dataafter$time_diff, lower_bound.cd4after, upper_bound.cd4after, fitted.cd4after)
+
+boot_df.rnabefore <- data.frame(time_diff = new_databefore$time_diff, lower_bound.rnabefore, upper_bound.rnabefore, fitted.rnabefore)
+
+boot_df.rnaafter <- data.frame(time_diff = new_dataafter$time_diff, lower_bound.rnaafter, upper_bound.rnaafter, fitted.rnaafter)
+
 plot.cd4_tb <- ggplot() +
-  geom_point(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), size = .8) +
-  geom_point(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), size = .8) +
-  geom_line(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), alpha = .5) +
-  geom_line(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), alpha = .5) +
-  geom_smooth(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = 1), method = "lm", se = FALSE, color = "blue") +
-  geom_smooth(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = 1), method = "lm", se = FALSE, color = "red") +
+  geom_point(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE) +
+  geom_point(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE) +
+  geom_line(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), alpha = .5, show.legend = FALSE) +
+  geom_line(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), alpha = .5, show.legend = FALSE) +
+  geom_line(data = boot_df.cd4before, aes(x = time_diff, y = fitted.cd4before), color = "blue", linewidth = 1) +
+  geom_line(data = boot_df.cd4after, aes(x = time_diff, y = fitted.cd4after), color = "red", linewidth = 1) +
   geom_hline(yintercept = sqrt(350)) +
-  theme_bw() +
   theme(legend.position = "none") +
   scale_x_continuous(limits = c(-360, 360)) +
+  scale_x_continuous(expand = c(0, 0)) +
   xlab("Days to TB date") +
-  ylab("Square root of CD4 count") 
+  ylab("Square root of CD4 count") +
+  theme_bw()
+
+plot.cd4_tb
 
 plot.rna_tb <- ggplot() +
-  geom_point(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna + 1), group = factor(id), color = factor(id)), size = .8) +
-  geom_point(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna + 1), group = factor(id), color = factor(id)), size = .8) +
-  geom_line(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna + 1), group = factor(id), color = factor(id)), alpha = .5) +
-  geom_line(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna + 1), group = factor(id), color = factor(id)), alpha = .5) +
-  geom_smooth(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna + 1), group = 1), method = "lm", se = FALSE, color = "blue") +
-  geom_smooth(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna + 1), group = 1), method = "lm", se = FALSE, color = "red") +
+  geom_point(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna+1), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE) +
+  geom_point(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna+1), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE) +
+  geom_line(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna+1), group = factor(id), color = factor(id)), alpha = .5, show.legend = FALSE) +
+  geom_line(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna+1), group = factor(id), color = factor(id)), alpha = .5, show.legend = FALSE) +
+  geom_line(data = boot_df.rnabefore, aes(x = time_diff, y = fitted.rnabefore), color = "blue", linewidth = 1) +
+  geom_line(data = boot_df.rnaafter, aes(x = time_diff, y = fitted.rnaafter), color = "red", linewidth = 1) +
   geom_hline(yintercept = log10(400)) +
-  theme_bw() +
   theme(legend.position = "none") +
   scale_x_continuous(limits = c(-360, 360)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,8)) +
   xlab("Days to TB date") +
-  ylab("log10 of viral load") 
+  ylab("Log10 of  viral load") +
+  theme_bw() 
 
 print(plot.cd4_tb)
 print(plot.rna_tb)
 
 library(cowplot)
 tbtrend.presenting <- plot_grid(plot.cd4_tb, plot.rna_tb)
-print(tbtrend.presenting)
+
+tbtrend.presenting <- grid.arrange(plot.cd4_tb, plot.rna_tb, ncol=2, 
+             top = "Lab data with seperately fitted linear-mixed model before and after TB diagnosis (presenting with TB)") 
 
 ggsave(plot = tbtrend.presenting, filename = "../results/plots_lab/tbtrend.presenting.png", width = width_descr*2, height = height_descr)
+
+
+
 ```
 
-```{r}
+```{r incidence suppression}
 tb20102022long <- readRDS("../data_clean/tb20102022long.rds")
 
 beforeTB <- tb20102022long %>% 
@@ -884,6 +1116,5 @@ incidence_nonsup
 incidenceviral <- plot_grid(incidence_sup, incidence_nonsup, ncol=2)
 
 ggsave(plot = incidenceviral, filename = "../results/plots_lab/incidenceviral.png", width = width_descr*1.5, height = height_descr)
-
 
 ```
