@@ -75,3 +75,38 @@ print(log_rank_test)
 
 #p<.05 --> significant differents between the two cohorts. 
 
+#### Plotting switzerland only
+
+
+# Create a survival object with your time and event variables
+km.surv_objCH <- Surv(kaplan_ch$persontime_years, kaplan_ch$case_incident_2m)
+
+# Use the survfit() function to calculate survival probabilities
+km.fitCH <- survfit(km.surv_objCH ~ 1)  
+
+# Generate Kaplan-Meier plot
+kaplan_plotCH <- ggsurvplot(
+  km.fitCH, 
+  data = kaplan_ch, 
+  pval = TRUE, 
+  xlab = "Time after starting ART in years",
+  ylab = "Probability of No Incident",
+  risk.table = TRUE,
+  conf.int = TRUE,
+  palette = c("#FFA07A", "#B0C4DE"),
+  legend.labs = 
+    c("Switzerland")) 
+
+# Create a zoomed in plot
+zoom_plotCH <- kaplan_plotCH$plot + 
+  coord_cartesian(ylim = c(0.98, 1)) +
+  labs(y = "Probability of No Incident") +
+  theme_bw() +
+  scale_x_continuous(expand = c(0,0))+
+  scale_y_continuous(expand = c(0,0))
+
+print(kaplan_plotCH)
+print(zoom_plotCH)
+
+ggsave(filename = "results/km_CH.png", plot = zoom_plotCH, width = 10, height = 8, dpi = 300)
+

@@ -59,8 +59,6 @@ summary(model_cd4)
 
 model_cd4ch <- lmer(sqrt(cd4) ~ time_diff + (1|id), data = rec)
 
-
-
 #TODO residuals plotten und auf normalität checken
 #TODO spline model fitten mit mgcv package (gamm funktion benutzen)
 

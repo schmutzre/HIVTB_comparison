@@ -10,19 +10,26 @@ pacman:: p_load(
   sjPlot,
   pROC,
   caret,
-  car, 
-  tabyl
+  car
 )
 
 
 ##### data import ----
+table(logistic$cohort)
+table(logistic$sex)
+table(logistic$region_born)
+table(logistic$rna_group)
+table(logistic$cd4_group)
 
-logistic_ch <- readRDS("data_clean/df_inc_ch.rds")
+
+
+
+logistic_ch <- readRDS("data_clean/art_ch.rds")
 
 logistic_test <- logistic_ch %>% 
   mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA"))) %>% 
   group_by(cohort) %>% 
-  mutate(cases_p_cohort = sum(case_incident_2m)) %>% 
+  mutate(cases_p_cohort = sum(case_incident_2m == 1)) %>% 
   ungroup()
 
 logistic_sa <- #...
@@ -31,7 +38,7 @@ logistic <- logistic_test #... #join them together
 
 #### model ----
 
-logistic_main <- glmer(case_incident_2m ~ cohort + sex + age_art_start + rna_group + cd4_group + (1 | rna_group), data = logistic, family = "binomial")
+logistic_main <- glmer(case_incident_2m ~ cohort + sex + region_born + age_at_ART_start + rna_group + cd4_group + (1| rna_group), data = logistic, family = "binomial")
 
 #### results ----
 

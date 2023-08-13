@@ -33,18 +33,6 @@ poisson <- poisson_test #... #join them together
 
 ##### model ----
 
-### first model
-
-poisson_df <- poisson %>% 
-  group_by(cohort) %>% 
-  summarise(tb_incidence = sum(case_incident_2m == 1), 
-            person_years = sum(persontime_years)/100000) %>% 
-  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95)) 
-
-irr <- poisson_df$pois$rate[poisson_df$cohort == "SA"] / poisson_df$pois$rate[poisson_df$cohort == "CH"]
-
-print(irr)
-
 ### regression model
 
 model_main <- glm(case_incident_2m ~ cohort, offset=log(persontime_years), family="poisson", data=poisson)
@@ -56,20 +44,19 @@ exp(coef(summary(model_main)))
 # CI
 exp(confint(model_main))
 
-## modeled outcome vs observed outcome
-# add predictions to data
+#double checking manually calculating it
 
-poisson_compare <- poisson %>%
-  mutate(predicted_counts_rate = predict(model_main, type = "response"),
-         predicted_counts_abs = format((predicted_counts_rate * persontime_years), scientific = FALSE))
+poisson_df <- poisson %>% 
+  group_by(cohort) %>% 
+  summarise(tb_incidence = sum(case_incident_2m == 1), 
+            person_years = sum(persontime_years)/1000) %>% 
+  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95)) 
 
-ggplot(poisson_compare, aes(x = case_incident_2m, y = predicted_counts_abs)) +
-  geom_jitter() +
-  labs(x = "Observed", y = "Predicted", title = "Observed vs Predicted")
+irr <- poisson_df$pois$rate[poisson_df$cohort == "SA"] / poisson_df$pois$rate[poisson_df$cohort == "CH"]
 
-#add 2x2 matrix
+print(irr)
 
-##### plots ----
+##### main plot ----
 
 ### For main analysis
 results_main <- broom::tidy(model_main, exponentiate = TRUE, conf.int = TRUE) %>%
@@ -93,7 +80,7 @@ incidence_rate_ratio <- ggplot(results_main %>% filter(term == "Effect"), aes(x 
  incidence_rate_ratio
 
 # Save plot as a jpeg (check dimensions again after plotting)
-ggsave(filename = "results/incidence_primary.png", plot = incidence_rate_ratio, width = 10, height = 8, dpi = 300)
+ggsave(filename = "results/incidence/incidence_primary.png", plot = incidence_rate_ratio, width = 10, height = 8, dpi = 300)
 
 #additional plots concerning incidence
 inc_ch <- ch %>% 
@@ -101,15 +88,18 @@ inc_ch <- ch %>%
   group_by(rna_group, cd4_group) %>% 
   summarise(n = n())
 
-inc_n_ch <- flextable(inc_ch)
+#inc_sa <- sa %>% 
 
 # Save your table as an image
-save_as_image(inc_n_ch, "results/inc_n_ch.png", expand = 10)
+save_as_image(inc_n_ch, "results/incidence/inc_n_ch.png", expand = 10)
 
 #### assumption ----
 
 ## checking for overdispersion - the Poisson model assumes that the mean and variance of the outcome are equal. If the variance is greater than the mean, the data are overdispersed.
 disp_test <- dispersiontest(model_main, trafo=1)  # 'trafo = 1' for log-transformed data
 print(disp_test)
+
+#### secondary plots ----
+
 
 

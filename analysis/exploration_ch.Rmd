@@ -28,7 +28,9 @@ pacman:: p_load(
   lme4,
   merTools, #CI for multilevel
   gridExtra,
-  tidyverse
+  tidyverse,
+  mgcv,
+  boot
   )
 
 width_descr <- 11 / cm(1)
@@ -38,191 +40,108 @@ height_descr <- 8 / cm(1)
 ## Data
 
 ```{r}
-ch <- readRDS("../data_clean/art_lab_ch.rds")
-ch_lab_long <- readRDS("../data_clean/art_lab_ch_long.rds")
-presentingTB_ch <- readRDS("../data_clean/presentingTB_ch.rds")
-notpresentingTB_ch <- readRDS("../data_clean/notpresentingTB_ch.rds")
-tb20102022_ch <- readRDS("../data_clean/tb20102022_ch.rds")
+art <- readRDS("../data_clean/art_ch.rds")
+art.long <- readRDS("../data_clean/art_ch.long.rds")
+tb <- readRDS("../data_clean/tb_ch.rds")
+tb.long <- readRDS("../data_clean/tb_ch.long.rds")
+
+source("../utils/functions.R")
+
+```
+
+```{r}
+#defining populations
+presenting <- art %>% 
+  filter(presenting_TB == 1)
+
+not.presenting <- art %>% 
+  filter(presenting_TB == 0)
+
+incident <- art %>% 
+  filter(case_incident_2m == "Incident TB")
 ```
 
 ## Exploration of the study population (Table 1)
 
-```{r}
-##define functions
-
-###age
-calculate_age_quantiles <- function(data) {
-  data %>% 
-    mutate(age_at_ART_start = year(art_start_date)-born) %>% 
-    summarize("25quantil" = quantile(age_at_ART_start, 0.25),
-              "50quantil" = quantile(age_at_ART_start, 0.5),
-              "75quantil" = quantile(age_at_ART_start, 0.75))
-}
-
-##baseline cd4 count
-calculate_cd4_baseline <- function(data) {
- 
-  cd4_quantiles <- quantile(data$cd4_baseline, c(0.25, 0.5, 0.75), na.rm = TRUE)
-  not_na_count <- sum(!is.na(data$cd4_baseline))
-  min_cd4 <- min(data$cd4_baseline, na.rm = TRUE)
-  max_cd4 <- max(data$cd4_baseline, na.rm = TRUE)
-
-  list(data = data, quantiles = cd4_quantiles, not_na_count = not_na_count, min = min_cd4, max = max_cd4)
-}
-
-##baseline hiv-rna count
-calculate_rna_baseline <- function(data) {
-  
-  rna_quantiles <- quantile(data$rna_baseline, c(0.25, 0.5, 0.75), na.rm = TRUE)
-  not_na_count <- sum(!is.na(data$rna_baseline))
-  min <- min(data$rna_baseline, na.rm = TRUE)
-  max <- max(data$rna_baseline, na.rm = TRUE)
-  list(data = data, quantiles = rna_quantiles, not_na_count = not_na_count, min = min, max = max)
-}# i filter the ones out which are out of the timeframe and those with NA, this gives some more valus. For some, the most recent value may be a NA but there are other measures.
-
-#question: there are several patients with rna = 0. Is this possible or NA?
-
+```{r table 1}
 # Complete study population
-age_at_ART_start_hiv <- calculate_age_quantiles(ch)
-gender_proportions_hiv <- tabyl(ch, sex)
-typetb_hiv <- tabyl(ch, type_tb_shcs)
-source_hiv <- tabyl(ch, risk2)
-cd4_baseline_hiv <- calculate_cd4_baseline(ch)
-rna_baseline_hiv <- calculate_rna_baseline(ch)
-who_stages_hiv <- tabyl(ch,who_stage)
+age_at_ART_start_hiv <- age_quantiles(art)
+gender_prop_hiv <- tabyl(art, sex)
+typetb_hiv <- tabyl(art, type_tb_shcs)
+source_hiv <- tabyl(art, risk2)
+cd4_base_hiv <- cd4_baseline(art)
+rna_base_hiv <- rna_baseline(art)
+who_stages_hiv <- tabyl(art,who_stage)
+art_regimens_hiv <- regimens(art)
+drug_comb_hiv <- drug_combinations(art)
+tb_resist_hiv <- tabyl(art, tb_drug_resist)
 
-# TB study population
-age_at_ART_start_tb <- calculate_age_quantiles(presentingTB_ch)
-gender_proportions_tb <- tabyl(presentingTB_ch, sex)
-typetb_tb <- tabyl(presentingTB_ch, type_tb_shcs)
-source_hiv_tb <- tabyl(presentingTB_ch, risk2)
-cd4_baseline_tb <- calculate_cd4_baseline(presentingTB_ch)
-rna_baseline_tb <- calculate_rna_baseline(presentingTB_ch)
-who_stages_tb <- tabyl(presentingTB_ch, who_stage)
+# presenting TB study population
+age_at_ART_start_tb <- age_quantiles(presenting)
+gender_prop_tb <- tabyl(presenting, sex)
+typetb_tb <- tabyl(presenting, type_tb_shcs)
+source_hiv_tb <- tabyl(presenting, risk2)
+cd4_base_tb <- baseline(presenting)
+rna_base_tb <- rna_baseline(presenting)
+who_stages_tb <- tabyl(presenting, who_stage)
+art_regimens_tb <- regimens(presenting)
+drug_comb_tb <- drug_combinations(presenting)
 
-# Not TB study population
-age_at_ART_start_notb <- calculate_age_quantiles(notpresentingTB_ch)
-gender_proportions_notb <- tabyl(notpresentingTB_ch, sex)
-typetb_notb <- tabyl(notpresentingTB_ch, type_tb_shcs)
-source_hiv_notb <- tabyl(notpresentingTB_ch, risk2)
-cd4_baseline_notb <- calculate_cd4_baseline(notpresentingTB_ch)
-rna_baseline_notb <- calculate_rna_baseline(notpresentingTB_ch)
-who_stages_notb <- tabyl(notpresentingTB_ch, who_stage)
+# Not-presenting TB study population
+age_at_ART_start_notb <- age_quantiles(not.presenting)
+gender_prop_notb <- tabyl(not.presenting, sex)
+typetb_notb <- tabyl(not.presenting, type_tb_shcs)
+source_hiv_notb <- tabyl(not.presenting, risk2)
+cd4_base_notb <- cd4_baseline(not.presenting)
+rna_base_notb <- rna_baseline(not.presenting)
+who_stages_notb <- tabyl(not.presenting, who_stage)
+art_regimens_notb <- regimens(not.presenting)
+drug_comb_notb <- drug_combinations(not.presenting)
+```
 
-#### Plots
+```{r table 1 plots}
 ###Baseline CD4/RNA
 # Calculate the counts
-ch_counts <-  ch %>%
-  group_by(cd4_group, rna_group) %>%
-  summarise(n = n())
+p1 <- plot_group_counts(art, "Patients starting ART between 2010-2022")
+p2 <- plot_group_counts(presenting, "Presenting with TB")
+p3 <- plot_group_counts(not.presenting, "Not-presenting with TB")
+p4 <- plot_group_counts(incident, "Incident cases")
 
-# Plot the data
-plot_baseline_groups_ch <- ggplot(ch_counts, aes(x = cd4_group, y = rna_group, fill = n)) +
-  geom_tile(color = "white") +
-  scale_fill_gradient(low = "white", high = "steelblue") +
-  labs(x = "CD4 Group",
-       y = "RNA Group",
-       fill = "Count",
-       title = "Number of IDs per Group") +
-  theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5))
+baseline_plot <- grid.arrange(p1,p2,p3,p4, ncol = 2)
 
-plot_baseline_groups_ch
+ggsave(filename = "../results/descriptive/baseline_groups_ch.jpeg", plot = baseline_plot, width = 10, height = 5, dpi = 300)
 
-ggsave(filename = "../results/baseline_groups_ch.jpeg", plot = plot_baseline_groups_ch, width = 10, height = 8, dpi = 300)
-
-#pp <- ch %>%  
- # ggplot(aes(x=sqrt(cd4_baseline), y=log10(rna_baseline))) +
-  #geom_hex(bins = 20, linewidth = 0.5, color = "black") +
-  #scale_fill_viridis_c(option = "C")
-
-#plot_gg(pp, width = 4, height = 4, scale = 300, multicore = TRUE)
-#widget = rglwidget()
-
-#saveWidget(widget, file = "../results/3dplotbaseline.html")
-
-###Source of infection / sex
-
-infectionsex_ch <- ch %>% 
-  group_by(sex,risk2) %>% 
-  summarise(n = n())
-
-# Replace the levels of sex
-
-plot_infection_sex_ch <- infectionsex_ch %>%
-  ggplot(aes(x = risk2, y = n, fill = sex)) +
-  geom_col(position = "dodge") +
-  labs(fill = "Sex", x = "", y = "n") +
-  coord_flip() +
-  ggtitle("Source of original infection") +
-  theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-plot_infection_sex_ch
-
-ggsave(filename = "../results/infectionsource.jpeg", plot = plot_infection_sex_ch, width = 10, height = 8, dpi = 300)
 ```
 
 ## Exploration of the TB study population (Table 2)
 
-```{r}
+```{r table 2}
 #age group
 custom_breaks <- c(16, 24, 34, 44, 100)
 
-tb20102022_ch <- tb20102022_ch %>% 
+tb <- tb %>% 
   mutate(age_tb = year(date_tb) - born) %>%
   mutate(agegroups = cut(age_tb, breaks = custom_breaks, include.lowest = TRUE)) %>% 
   mutate(agegroups = as.factor(agegroups))
 
-flextable(tabyl(tb20102022_ch, agegroups))
+flextable(tabyl(tb, agegroups))
 
-tb20102022_ch %>%
+tb %>%
     summarize("25quantil" = quantile(age_tb, 0.25),
               "50quantil" = quantile(age_tb, 0.5),
               "75quantil" = quantile(age_tb, 0.75))
 
 #gender
-flextable(tabyl(tb20102022_ch, sex))
+flextable(tabyl(tb, sex))
 
 #birth country
-labelled_tb.df <- as_factor(tb20102022_ch, levels="labels")
-tabyl(labelled_tb.df$tbd_pat_birth)
-
-## Define a function to map countries to continents
-get_continent <- function(country) {
-  africa_countries <- c("Algeria", "Angola", "Cameroon", "Côte dIvoire", "Ethiopia", "Eritrea", "Gambia", "Ghana",
-                        "Guinea", "Kenya", "Kongo (Brazzaville)", "Kongo (Kinshasa)", "Mauritania", "Nigeria",
-                        "Somalia", "South Africa", "Togo", "Zimbabwe", "Uganda")
-
-  if (country %in% africa_countries) {
-    return("Sub-Saharan Africa")
-  } else if (country %in% c("Egypt", "Morocco")) {
-    return("North Africa")
-  } else if (country %in% c("Russia", "Austria", "Romania", "Italy", "Spain", "Portugal", "Switzerland", "Russian Federation")) {
-    return("Europe")
-  } else if (country %in% c("United States", "Canada")) {
-    return("North America")
-  } else if (country %in% c("Argentina", "Chile", "Brasil", "Peru", "Bolivia")) {
-    return("South America")
-  } else if (country %in% c("Thailand", "Indonesia", "Cambodia", "Vietnam")) {
-    return("Asia")
-  }
-  else {
-    return("Unknown")
-  } 
-}
-
-## Use mutate to create the 'region_born' column
-result_region <- labelled_tb.df %>%
-  mutate(region_born = sapply(tbd_pat_birth, get_continent),
-         region_born = ifelse(id == 54167, "Sub-Saharan Africa", region_born),
-         region_born = ifelse(id %in% c(59032,90323), "Asia", region_born))
+flextable(tabyl(tb, region_born))
 
 #site of tb
-flextable(tabyl(tb20102022_ch, type_tb_shcs)) #TBC = Pulmonary
+flextable(tabyl(tb, type_tb_shcs)) #TBC = Pulmonary
 
 #cd4 at tb diagnosis
-tb20102022_ch %>% 
+tb %>% 
   summarize("25quantil" = quantile(tb_diag_cd4, 0.25, na.rm = TRUE),
               "50quantil" = quantile(tb_diag_cd4, 0.5, na.rm = TRUE),
               "75quantil" = quantile(tb_diag_cd4, 0.75, na.rm = TRUE),
@@ -231,42 +150,12 @@ tb20102022_ch %>%
 
 
 #hiv rna at tb diagnosis
-tb20102022_ch %>% 
+tb %>% 
   summarize("25quantil" = quantile(tb_diag_rna, 0.25, na.rm = TRUE),
               "50quantil" = quantile(tb_diag_rna, 0.5, na.rm = TRUE),
               "75quantil" = quantile(tb_diag_rna, 0.75, na.rm = TRUE),
             "missing" = sum(is.na(tb_diag_rna)),
             "non-missing" = sum(!is.na(tb_diag_rna)))
-
-#### Plots
-
-valid_regions <- tb20102022_ch %>%
-  group_by(region, agegroups) %>%
-  summarise(n = n(), .groups = 'drop') %>%
-  filter(n > 0) %>%
-  dplyr::select(region) %>% 
-  distinct()  # To ensure we don't have duplicate regions
-
-# Create the complete data frame and filter for valid regions
-region_ch <- tb20102022_ch %>%
-  group_by(region, agegroups) %>%
-  summarise(n = n(), .groups = 'drop') %>%
-  complete(region, agegroups, fill = list(n = 0)) %>%
-  filter(region %in% valid_regions$region) 
-
-plot_region_age_ch <- region_ch %>%
-  ggplot(aes(x = region, y = n, fill = factor(agegroups))) +
-  geom_col(position = "dodge") +
-  labs(fill = "Age group", x = "", y = "n") +
-  coord_flip() +
-  scale_fill_discrete(breaks = rev(levels(region_ch$agegroups))) +  # reversing the order of legend
-  ggtitle("Nationality and age") +
-  theme_bw() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-plot_region_age_ch
-
-ggsave(filename = "../results/nationalityage_ch.jpeg", plot = plot_region_age_ch, width = 10, height = 8, dpi = 300)
 ```
 
 ## Endpoints (Table 3)
@@ -287,7 +176,7 @@ overall_tb_incidence <- ch %>%
                              ))) %>% 
   filter(persontime > 0) %>%
   summarise(tb_incidence = sum(case_incident_2m == 1), 
-            person_years = sum(persontime)/100000) %>% 
+            person_years = sum(persontime)/1000) %>% 
   mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95)) 
 
 # Incidence calculations by each rna_group
@@ -302,7 +191,7 @@ incidence_by_rna <- ch %>%
   filter(persontime > 0) %>%
   group_by(rna_group) %>%
   summarise(tb_incidence = sum(case_incident_2m == 1), 
-            person_years = sum(persontime)/100000) %>% 
+            person_years = sum(persontime)/1000) %>% 
   mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95))
 
 # Incidence calculations by each cd4_group
@@ -317,7 +206,7 @@ incidence_by_cd4 <- ch %>%
   filter(persontime > 0) %>%
   group_by(cd4_group) %>%
   summarise(tb_incidence = sum(case_incident_2m == 1), 
-            person_years = sum(persontime)/100000) %>% 
+            person_years = sum(persontime)/1000) %>% 
   mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95))
 
 #cd4plot
@@ -329,7 +218,7 @@ incidence_cd4 <- incidence_by_cd4 %>%
   geom_point(aes(x = "overall", y=overall_tb_incidence$pois$rate)) +
   geom_errorbar(aes(x= "overall", ymin = overall_tb_incidence$pois$lower, 
                     ymax = overall_tb_incidence$pois$upper), width = 0.2) +
-  labs(x= "Baseline CD4 cell count", y = "TB incidence per 100,000 person-years") +
+  labs(x= "Baseline CD4 cell count", y = "TB incidence per 1,000 person-years") +
   theme_bw()
 incidence_cd4
 
@@ -344,7 +233,7 @@ incidence_rna <- incidence_by_rna %>%
   geom_point(aes(x = "overall", y=overall_tb_incidence$pois$rate)) +
   geom_errorbar(aes(x= "overall", ymin = overall_tb_incidence$pois$lower, 
                     ymax = overall_tb_incidence$pois$upper), width = 0.2) +
-  labs(x= "Baseline HIV RNA viral load", y = "TB incidence per 100,000 person-years") +
+  labs(x= "Baseline HIV RNA viral load", y = "TB incidence per 1,000 person-years") +
   theme_bw()
 
 incidence_rna
@@ -534,8 +423,6 @@ ggsave(plot = rna_measurements, filename = "../results/rna_meas.png", width = wi
 ```
 
 ```{r plot trends cd4 and rna}
-#TODO: I want a plot with rawdata (grey) plus simple fitted in red (left), then on the right side one lmer fitted including CI and one spline fitted including CI (right). For both CD4 (top) and RNA (bottom).
-
 df.pred <- ch_lab_long %>%
   filter(time_diff > -30 & time_diff < 100)
 
@@ -545,6 +432,7 @@ cd4_yearRAW <- df.pred %>%
   ggplot(aes(x = time_diff)) +
   geom_line(aes(group = factor(id), y = sqrt(cd4)), color = "grey", alpha = .2) +
   geom_hline(yintercept = sqrt(350)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
   theme_bw() +
   labs(x = "", title = "raw data + loess") +
   geom_smooth(aes(y = sqrt(cd4)), method = "loess", se = TRUE, color = "red", fill = "blue") +
@@ -560,6 +448,7 @@ rna_yearRAW <- df.pred %>%
   ggplot(aes(x = time_diff)) +
   geom_line(aes(group = factor(id), y = log10(rna+1)), color = "grey", alpha = .2) +
   geom_hline(yintercept = log10(400)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
   theme_bw() +
   labs(x = "Days since ART start", title = "") +
   geom_smooth(aes(y = log10(rna+1)), method = "loess", se = TRUE, color = "red", fill = "blue") +
@@ -596,6 +485,7 @@ boot_df.cd4 <- data.frame(time_diff = new_data$time_diff, lower_bound.cd4, upper
 
 # Fit a GAM with a spline term
 model_cd4_spline <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = df.pred, method = "REML")
+#Restricted Maximum Likelihood (REML) estimation method
 
 # Function to fit the model and generate predictions
 fit_and_predictCD4 <- function(data, indices) {
@@ -630,10 +520,11 @@ boot_df.cd4 <- merge(boot_df.cd4, boot_df.cd4_spline, by = "time_diff")
 cd4_yearFIT <- boot_df.cd4 %>%
   ggplot(aes(x = time_diff)) +
   geom_hline(yintercept = sqrt(350)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
   geom_line(aes(y = fitted.cd4), color = "red") +
-  geom_ribbon(aes(ymin = lower_bound.cd4, ymax = upper_bound.cd4), alpha = 0.4) +
+  geom_ribbon(aes(ymin = lower_bound.cd4, ymax = upper_bound.cd4), alpha = 0.2, fill = "red") +
   geom_line(aes(y = fitted.cd4_spline), color = "blue") +
-  geom_ribbon(aes(ymin = lower_bound.cd4_spline, ymax = upper_bound.cd4_spline), alpha = 0.4) +
+  geom_ribbon(aes(ymin = lower_bound.cd4_spline, ymax = upper_bound.cd4_spline), alpha = 0.2, fill = "blue") +
   theme_bw() +
   labs(x = "", y = "",title = "LMEM (red) + GAM with a spline (blue)") +
   scale_x_continuous(limits = c(-30,100)) +
@@ -641,6 +532,13 @@ cd4_yearFIT <- boot_df.cd4 %>%
   theme(plot.title = element_text(hjust = 0.5))
 
 print(cd4_yearFIT)
+
+cd4_yearFITzoomed <- cd4_yearFIT +
+  scale_x_continuous(limits = c(0,30), expand = c(0,0)) +
+  scale_y_continuous(limits = c(15,20), expand = c(0,0)) +
+  labs(title = "LMEM (red) + GAM with a spline (blue) rescaled")
+
+print(cd4_yearFITzoomed)
 
 #### fitted plot HIV-RNA ----
 ## mixed-effect model
@@ -696,10 +594,11 @@ boot_df.rna <- merge(boot_df.rna, boot_df.rna_spline, by = "time_diff")
 rna_yearFIT <- boot_df.rna %>%
   ggplot(aes(x = time_diff)) +
   geom_hline(yintercept = log10(400)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
   geom_line(aes(y = fitted.rna), color = "red") +
-  geom_ribbon(aes(ymin = lower_bound.rna, ymax = upper_bound.rna), alpha = 0.4) +
+  geom_ribbon(aes(ymin = lower_bound.rna, ymax = upper_bound.rna), alpha = 0.4, fill = "red") +
   geom_line(aes(y = fitted.rna_spline), color = "blue") +
-  geom_ribbon(aes(ymin = lower_bound.rna_spline, ymax = upper_bound.rna_spline), alpha = 0.4) +
+  geom_ribbon(aes(ymin = lower_bound.rna_spline, ymax = upper_bound.rna_spline), alpha = 0.4, fill = "blue") +
   theme_bw() +
   labs(x = "Days since ART start", y = "", title = "") +
   scale_x_continuous(limits = c(-30,100)) +
@@ -708,12 +607,36 @@ rna_yearFIT <- boot_df.rna %>%
 
 print(rna_yearFIT)
 
+rna_yearFITzoomed <- rna_yearFIT +
+  scale_x_continuous(limits = c(0,30),expand = c(0,0))+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))
+
+print(rna_yearFITzoomed)
+
 #### fusion + export ----
 
-trends <- grid.arrange(cd4_yearRAW, cd4_yearFIT, rna_yearRAW, rna_yearFIT, ncol=2) 
+trends <- grid.arrange(cd4_yearRAW, cd4_yearFIT, cd4_yearFITzoomed, rna_yearRAW, rna_yearFIT, rna_yearFITzoomed, ncol=3) 
 
-ggsave(plot = trends, filename = "../results/plots_lab/trends_slope.png", width = width_descr*2, height = height_descr*2)
+ggsave(plot = trends, filename = "../results/plots_lab/trends_slope.png", width = width_descr*4, height = height_descr*3)
 
+print(trends)
+
+#### final plot ----
+
+cd4_yearFITfinal <- boot_df.cd4 %>%
+  ggplot(aes(x = time_diff)) +
+  geom_line(data = df.pred, aes(group = factor(id), x = time_diff, y = sqrt(cd4)), color = "grey", alpha = .2) +
+  geom_hline(yintercept = sqrt(350)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  geom_line(aes(y = fitted.cd4_spline), color = "blue") +
+  geom_ribbon(aes(ymin = lower_bound.cd4_spline, ymax = upper_bound.cd4_spline), alpha = 0.2, fill = "blue") +
+  theme_bw() +
+  labs(x = "", y = "",title = "LMEM (red) + GAM with a spline (blue)") +
+  scale_x_continuous(limits = c(-30,100)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,50)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+print(cd4_yearFITfinal)
 
 ```
 
@@ -751,13 +674,14 @@ lab_longTB.rna %>%
 plot.cd4_points <- lab_longTB.cd4 %>% 
   filter(prevalence == TRUE) %>% 
   ggplot(aes(x = time_diff, color = factor(id))) +
-  geom_line(aes(group = factor(id), y = sqrt(cd4)), alpha = .5) +
-  geom_point(aes(group = factor(id), y = sqrt(cd4)), alpha = .5) +
+  geom_line(aes(group = factor(id), y = sqrt(cd4)), alpha = .2) +
+  geom_point(aes(group = factor(id), y = sqrt(cd4)), alpha = .2) +
   geom_hline(yintercept = sqrt(350)) +
   geom_point(aes(x=ARTtoTB, y = min_diff_date_cd4), shape = 13, size = 3)+
   labs(x = "Days since ART start") +
 ylab("Square root of CD4 count") +
-  xlim(c(-360,720))+
+  scale_y_continuous(limits = c(0,40), expand = c(0,0))+
+  scale_x_continuous(limits = c(-360,360), expand = c(0,0))+
   theme_bw() +
   theme(legend.position = "none") 
 
@@ -767,13 +691,13 @@ print(plot.cd4_points)
 plot.rna_points <- lab_longTB.rna %>% 
   filter(prevalence == TRUE) %>% 
   ggplot(aes(x = time_diff, color = factor(id))) +
-  geom_line(aes(group = factor(id), y = log10rna), alpha = .5) +
-  geom_point(aes(group = factor(id), y = log10rna), alpha = .5) +
+  geom_line(aes(group = factor(id), y = log10rna), alpha = .2) +
+  geom_point(aes(group = factor(id), y = log10rna), alpha = .2) +
   geom_hline(yintercept = log10(400)) +
   geom_point(aes(x=ARTtoTB, y = min_diff_date_rna), shape = 13, size = 3)+
   labs(x = "Days since ART start") +
-  xlim(c(-360,720))+
-  ylim(c(-.5,7.5))+
+  xlim(c(-360,360))+
+  scale_y_continuous(limits = c(0,7.5), expand = c(0,0))+
   ylab(expression(log[10]("cd4"))) +
   theme_bw() +
   ylab("log10(rna+1)")+
@@ -842,15 +766,243 @@ ggplotly(plot.rna_pointsINC)
 
 ```
 
+```{r t(0) = art}
+tb20102022long<-readRDS("../data_clean/tb20102022long.rds")
+#### plot t(0) = art start
+
+tb20102022df <- tb20102022long %>% 
+  mutate(timediffTB = as.numeric(date_tb - art_start_date)) %>% 
+  filter(timediffTB < time_diff) %>% 
+  group_by(id) %>%
+  mutate(min_diff_date = labdate[which.min(abs(labdate - date_tb))]) %>%
+  ungroup() %>% 
+  mutate(min_diff_date_days = as.numeric(min_diff_date-art_start_date),
+         min_diff_date_cd4 = if_else(min_diff_date_days == time_diff, sqrt(cd4), NA_real_),
+         min_diff_date_rna = if_else(min_diff_date_days == time_diff, log10(rna+1), NA_real_)) %>% 
+  ungroup()
+
+new_dataTB <- data.frame(
+  time_diff = seq(min(tb20102022df$time_diff), max(tb20102022df$time_diff), length.out = 1000),
+  id = rep(unique(tb20102022df$id)[1], 1000)  # use the first unique id
+)
+
+model_cd4_splineTB <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = tb20102022df, method = "REML")
+#Restricted Maximum Likelihood (REML) estimation method
+
+# Function to fit the model and generate predictions
+fit_and_predictCD4 <- function(data, indices) {
+  # Fit the model with the specified indices
+  fit <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = data[indices, ], method = "REML")
+  
+  # Generate predictions
+  pred <- predict(fit, newdata = new_dataTB)
+  
+  return(pred)
+}
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Bootstrap predictions
+boot_preds.cd4_splineTB <- boot(data = tb20102022df, statistic = fit_and_predictCD4, R = 100)
+
+# Calculate percentiles for prediction intervals
+lower_bound.cd4_splineTB <- apply(boot_preds.cd4_splineTB$t, 2, quantile, probs = 0.025)
+upper_bound.cd4_splineTB <- apply(boot_preds.cd4_splineTB$t, 2, quantile, probs = 0.975)
+fitted.cd4_splineTB <- apply(boot_preds.cd4_splineTB$t, 2, mean)
+
+# Combine into a data frame
+boot_df.cd4_splineTB <- data.frame(time_diff = new_dataTB$time_diff, lower_bound.cd4_splineTB, upper_bound.cd4_splineTB, fitted.cd4_splineTB)
+
+## Plot 
+
+cd4_yearFITTB <- boot_df.cd4_splineTB %>%
+  ggplot(aes(x = time_diff)) +
+  geom_hline(yintercept = sqrt(350)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  geom_line(data = tb20102022df, aes(x = time_diff, y = sqrt(cd4), group = factor(id), color = factor(id)), linewidth = .8, show.legend = FALSE, alpha = .2) +
+  geom_point(data = tb20102022df, aes(x = time_diff, y = sqrt(cd4), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE, alpha = .2) +
+  geom_point(data = tb20102022df, aes(x = timediffTB, y = min_diff_date_cd4, group = factor(id), color = factor(id)), size = 2, show.legend = FALSE) +
+  geom_line(aes(y = fitted.cd4_splineTB), color = "blue") +
+  geom_ribbon(aes(ymin = lower_bound.cd4_splineTB, ymax = upper_bound.cd4_splineTB), alpha = 0.2, fill = "blue") +
+  theme_bw()+
+  labs(x = "Days since ART start", y = "Square root of CD4 count")
+
+print(cd4_yearFITTB)
+
+## RNA
+
+model_rna_splineTB <- gam(log10(rna+1) ~ s(time_diff) + s(id, bs="re"), data = tb20102022df, method = "REML")
+#Restricted Maximum Likelihood (REML) estimation method
+
+# Function to fit the model and generate predictions
+fit_and_predictRNA <- function(data, indices) {
+  # Fit the model with the specified indices
+  fit <- gam(log10(rna+1) ~ s(time_diff) + s(id, bs="re"), data = data[indices, ], method = "REML")
+  
+  # Generate predictions
+  pred <- predict(fit, newdata = new_dataTB)
+  
+  return(pred)
+}
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Bootstrap predictions
+boot_preds.rna_splineTB <- boot(data = tb20102022df, statistic = fit_and_predictRNA, R = 100)
+
+# Calculate percentiles for prediction intervals
+lower_bound.rna_splineTB <- apply(boot_preds.rna_splineTB$t, 2, quantile, probs = 0.025)
+upper_bound.rna_splineTB <- apply(boot_preds.rna_splineTB$t, 2, quantile, probs = 0.975)
+fitted.rna_splineTB <- apply(boot_preds.rna_splineTB$t, 2, mean)
+
+# Combine into a data frame
+boot_df.rna_splineTB <- data.frame(time_diff = new_dataTB$time_diff, lower_bound.rna_splineTB, upper_bound.rna_splineTB, fitted.rna_splineTB)
+
+## Plot 
+
+rna_yearFITTB <- boot_df.rna_splineTB %>%
+  ggplot(aes(x = time_diff)) +
+  geom_hline(yintercept = log10(400)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  geom_line(data = tb20102022df, aes(x = time_diff, y = log10(rna+1), group = factor(id), color = factor(id)), linewidth = .8, show.legend = FALSE, alpha = .2) +
+  geom_point(data = tb20102022df, aes(x = time_diff, y = log10(rna+1), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE, alpha =.2) +
+  geom_point(data = tb20102022df, aes(x = timediffTB, y = min_diff_date_rna, color = factor(id)), size = 2, show.legend = FALSE) +
+  geom_line(aes(y = fitted.rna_splineTB), color = "blue") +
+  geom_ribbon(aes(ymin = lower_bound.rna_splineTB, ymax = upper_bound.rna_splineTB), alpha = 0.2, fill = "blue") +
+  theme_bw()+
+  labs(x = "Days since ART start", y = "Log10 of RNA viral load")
+
+print(rna_yearFITTB)
+
+#### inspecting ids that are suspect
+
+TB_plotARTzero <- grid.arrange(cd4_yearFITTB, rna_yearFITTB, ncol = 2,
+                               top = "Starting from TB date for every ID")
+
+ggsave(plot = TB_plotARTzero, filename = "../results/plots_lab/TBARTzero.png", width = width_descr*2, height = height_descr)
+```
+
+```{r t(0)= tb}
+tb20102022df2 <- tb20102022long %>% 
+  mutate(timediffTB = as.numeric(labdate - date_tb)) %>% 
+  filter(labdate < art_start_date, 
+         date_tb <= art_start_date) 
+
+new_dataTB2 <- data.frame(
+  timediffTB = seq(from = -11216, to = 2139, length.out = 1000),
+  id = rep(unique(tb20102022df2$id)[1], 1000)  # use the first unique id
+)
+
+model_cd4_splineTB2 <- gam(sqrt(cd4) ~ s(timediffTB) + s(id, bs="re"), data = tb20102022df2, method = "REML")
+#Restricted Maximum Likelihood (REML) estimation method
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Function to fit the model and generate predictions
+fit_and_predictCD42 <- function(data, indices) {
+  # Fit the model with the specified indices
+  fit <- gam(sqrt(cd4) ~ s(timediffTB) + s(id, bs="re"), data = data[indices, ], method = "REML")
+  
+  # Generate predictions
+  pred <- predict(fit, newdata = new_dataTB2)
+  
+  return(pred)
+}
+
+# Bootstrap predictions
+boot_preds.cd4_splineTB2 <- boot(data = tb20102022df2, statistic = fit_and_predictCD42, R = 100)
+
+# Calculate percentiles for prediction intervals
+lower_bound.cd4_splineTB2 <- apply(boot_preds.cd4_splineTB2$t, 2, quantile, probs = 0.025)
+upper_bound.cd4_splineTB2 <- apply(boot_preds.cd4_splineTB2$t, 2, quantile, probs = 0.975)
+fitted.cd4_splineTB2 <- apply(boot_preds.cd4_splineTB2$t, 2, mean)
+
+# Combine into a data frame
+boot_df.cd4_splineTB2 <- data.frame(timediffTB = new_dataTB2$timediffTB, lower_bound.cd4_splineTB2, upper_bound.cd4_splineTB2, fitted.cd4_splineTB2)
+
+## Plot 
+
+cd4_yearFITTB2 <- boot_df.cd4_splineTB2 %>%
+  ggplot(aes(x = timediffTB)) +
+  geom_hline(yintercept = sqrt(350)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  geom_line(aes(y = fitted.cd4_splineTB2), color = "blue") +
+  geom_ribbon(aes(ymin = lower_bound.cd4_splineTB2, ymax = upper_bound.cd4_splineTB2), alpha = 0.2, fill = "blue") +
+  geom_line(data = tb20102022df2, aes(x = timediffTB, y = sqrt(cd4), group = factor(id)), linewidth = .8, show.legend = FALSE, alpha = .2, color = "grey") +
+  geom_point(data = tb20102022df2, aes(x = timediffTB, y = sqrt(cd4), group = factor(id)), size = .8, show.legend = FALSE, alpha = .2, color = "grey") +
+  theme_bw()+
+  labs(x = "Days from TB date", y = "Square root of CD4 count")+
+  scale_x_continuous(expand = c(0,0))
+
+print(cd4_yearFITTB2)
+
+## RNA
+model_rna_splineTB2 <- gam(log10(rna+1) ~ s(timediffTB) + s(id, bs="re"), data = tb20102022df2, method = "REML")
+#Restricted Maximum Likelihood (REML) estimation method
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Function to fit the model and generate predictions
+fit_and_predictRNA2 <- function(data, indices) {
+  # Fit the model with the specified indices
+  fit <- gam(log10(rna+1) ~ s(timediffTB) + s(id, bs="re"), data = data[indices, ], method = "REML")
+  
+  # Generate predictions
+  pred <- predict(fit, newdata = new_dataTB2)
+  
+  return(pred)
+}
+
+# Bootstrap predictions
+boot_preds.rna_splineTB2 <- boot(data = tb20102022df2, statistic = fit_and_predictRNA2, R = 100)
+
+# Calculate percentiles for prediction intervals
+lower_bound.rna_splineTB2 <- apply(boot_preds.rna_splineTB2$t, 2, quantile, probs = 0.025)
+upper_bound.rna_splineTB2 <- apply(boot_preds.rna_splineTB2$t, 2, quantile, probs = 0.975)
+fitted.rna_splineTB2 <- apply(boot_preds.rna_splineTB2$t, 2, mean)
+
+# Combine into a data frame
+boot_df.rna_splineTB2 <- data.frame(timediffTB = new_dataTB2$timediffTB, lower_bound.rna_splineTB2, upper_bound.rna_splineTB2, fitted.rna_splineTB2)
+
+## Plot 
+
+rna_yearFITTB2 <- boot_df.rna_splineTB2 %>%
+  ggplot(aes(x = timediffTB)) +
+  geom_hline(yintercept = log10(400)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  geom_line(aes(y = fitted.rna_splineTB2), color = "blue") +
+  geom_ribbon(aes(ymin = lower_bound.rna_splineTB2, ymax = upper_bound.rna_splineTB2), alpha = 0.2, fill = "blue") +
+  geom_line(data = tb20102022df2, aes(x = timediffTB, y = log10(rna), group = factor(id), ), linewidth = .8, show.legend = FALSE, alpha = .2, color = "grey") +
+  geom_point(data = tb20102022df2, aes(x = timediffTB, y = log10(rna), group = factor(id)), size = .8, show.legend = FALSE, alpha = .2, color = "grey") +
+  theme_bw()+
+  labs(x = "Days from TB date", y = "Log10 of viral load")+
+  scale_x_continuous(expand = c(0,0), limits = c(-7500,1000))
+
+print(rna_yearFITTB2)
+
+#### inspecting ids that are suspect
+
+TB_plotTBzero <- grid.arrange(cd4_yearFITTB2, rna_yearFITTB2, ncol = 2,
+                              top = "Before starting ART")
+
+ggsave(plot = TB_plotTBzero, filename = "../results/plots_lab/TBTBzero.png", width = width_descr*2, height = height_descr)
+
+
+```
+
 ```{r trends before after}
-lab_longTBdate <- ch_lab_long %>% 
+lab_longTBdate <- tb20102022long %>% 
   filter(!is.na(date_tb)) %>% 
   mutate(prevalence = if_else(date_tb < art_start_date + 60, TRUE, FALSE),
          timediffTB = as.numeric(labdate - date_tb)) %>% 
   filter(timediffTB > -360, timediffTB < 360) 
 
 count_nonNA <- lab_longTBdate %>% 
-  filter(timediffTB > -360, timediffTB < 360) %>% 
+  filter(timediffTB > -100, timediffTB < 100) %>% 
   group_by(id) %>% 
   summarize(cd4 = sum(!is.na(cd4)),
             rna = sum(!is.na(rna)))
@@ -858,23 +1010,19 @@ count_nonNA <- lab_longTBdate %>%
 # Filter data for before and after 0 for cd4
 lab_longTBdate_before.cd4 <- lab_longTBdate %>% 
   filter(timediffTB <= 0,
-         prevalence == TRUE,
          !is.na(cd4)) 
 
 lab_longTBdate_after.cd4 <- lab_longTBdate %>% 
   filter(timediffTB > 0,
-         prevalence == TRUE,
          !is.na(cd4))
 
 # Filter data for before and after 0 for rna
 lab_longTBdate_before.rna <- lab_longTBdate %>% 
   filter(timediffTB <= 0,
-         prevalence == TRUE,
          !is.na(rna)) 
 
 lab_longTBdate_after.rna <- lab_longTBdate %>% 
   filter(timediffTB > 0,
-         prevalence == TRUE,
         !is.na(rna))
 
 ## trends
@@ -885,7 +1033,7 @@ model_rnaafter <- lmer(log10(rna+1) ~ time_diff + (1|id), data = lab_longTBdate_
 
 new_databefore <- data.frame(
   time_diff = seq(-360, 0, length.out = 1000),
-  id = rep(unique(df.pred$id)[1], 1000)  # use the first unique id
+  id = rep(unique(lab_longTBdate$id)[1], 1000)  # use the first unique id
 )
 
 new_dataafter <- data.frame(
@@ -930,48 +1078,69 @@ boot_df.rnabefore <- data.frame(time_diff = new_databefore$time_diff, lower_boun
 
 boot_df.rnaafter <- data.frame(time_diff = new_dataafter$time_diff, lower_bound.rnaafter, upper_bound.rnaafter, fitted.rnaafter)
 
-plot.cd4_tb <- ggplot() +
-  geom_point(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE) +
-  geom_point(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE) +
-  geom_line(data = lab_longTBdate_before.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), alpha = .5, show.legend = FALSE) +
-  geom_line(data = lab_longTBdate_after.cd4, aes(x = timediffTB, y = sqrt(cd4), group = factor(id), color = factor(id)), alpha = .5, show.legend = FALSE) +
+plot.cd4_tbbefore <- ggplot(data = lab_longTBdate_before.cd4) +
+  geom_point(aes(x = timediffTB, y = sqrt(cd4), group = factor(id)), color = "grey", size = .8, show.legend = FALSE) +
+  geom_line(aes(x = timediffTB, y = sqrt(cd4), group = factor(id)), color = "grey", size = .8, show.legend = FALSE) +
+  geom_ribbon(data = boot_df.cd4before, aes(x = time_diff, ymin = lower_bound.cd4before, ymax = upper_bound.cd4before), alpha = 0.4, fill = "blue") +
   geom_line(data = boot_df.cd4before, aes(x = time_diff, y = fitted.cd4before), color = "blue", linewidth = 1) +
-  geom_line(data = boot_df.cd4after, aes(x = time_diff, y = fitted.cd4after), color = "red", linewidth = 1) +
   geom_hline(yintercept = sqrt(350)) +
   theme(legend.position = "none") +
-  scale_x_continuous(limits = c(-360, 360)) +
-  scale_x_continuous(expand = c(0, 0)) +
-  xlab("Days to TB date") +
+  scale_x_continuous(limits = c(-360, 0), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0,30)) +
   ylab("Square root of CD4 count") +
+  xlab("")+
   theme_bw()
 
-plot.cd4_tb
+plot.cd4_tbbefore
 
-plot.rna_tb <- ggplot() +
-  geom_point(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna+1), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE) +
-  geom_point(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna+1), group = factor(id), color = factor(id)), size = .8, show.legend = FALSE) +
-  geom_line(data = lab_longTBdate_before.rna, aes(x = timediffTB, y = log10(rna+1), group = factor(id), color = factor(id)), alpha = .5, show.legend = FALSE) +
-  geom_line(data = lab_longTBdate_after.rna, aes(x = timediffTB, y = log10(rna+1), group = factor(id), color = factor(id)), alpha = .5, show.legend = FALSE) +
+plot.cd4_tbafter <- ggplot(data = lab_longTBdate_after.cd4) +
+  geom_point(aes(x = timediffTB, y = sqrt(cd4), group = factor(id)), color = "grey", size = .8, show.legend = FALSE) +
+  geom_line(aes(x = timediffTB, y = sqrt(cd4), group = factor(id)), color = "grey", size = .8, show.legend = FALSE) +
+  geom_ribbon(data = boot_df.cd4after, aes(x = time_diff, ymin = lower_bound.cd4after, ymax = upper_bound.cd4after), alpha = 0.4, fill = "blue") +
+  geom_line(data = boot_df.cd4after, aes(x = time_diff, y = fitted.cd4after), color = "blue", linewidth = 1) +
+  geom_hline(yintercept = sqrt(350)) +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(0, 360), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0,30)) +
+  xlab("")+
+  ylab("")+
+  theme_bw()
+
+plot.cd4_tbafter
+
+plot.rna_tbbefore <- ggplot(data = lab_longTBdate_before.rna) +
+  geom_point(aes(x = timediffTB, y = log10(rna+1), group = factor(id)), color = "grey", size = .8, show.legend = FALSE) +
+  geom_line(aes(x = timediffTB, y = log10(rna+1), group = factor(id)), color = "grey", size = .8, show.legend = FALSE) +
+  geom_ribbon(data = boot_df.rnabefore, aes(x = time_diff, ymin = lower_bound.rnabefore, ymax = upper_bound.rnabefore), alpha = 0.4, fill = "blue") +
   geom_line(data = boot_df.rnabefore, aes(x = time_diff, y = fitted.rnabefore), color = "blue", linewidth = 1) +
-  geom_line(data = boot_df.rnaafter, aes(x = time_diff, y = fitted.rnaafter), color = "red", linewidth = 1) +
   geom_hline(yintercept = log10(400)) +
   theme(legend.position = "none") +
-  scale_x_continuous(limits = c(-360, 360)) +
-  scale_y_continuous(expand = c(0,0), limits = c(0,8)) +
+  scale_x_continuous(limits = c(-360, 0), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0,8)) +
   xlab("Days to TB date") +
-  ylab("Log10 of  viral load") +
-  theme_bw() 
+  ylab("Log10 of viral load") +
+  theme_bw()
+plot.rna_tbefore
 
-print(plot.cd4_tb)
-print(plot.rna_tb)
+plot.rna_tbafter <- ggplot(data = lab_longTBdate_after.rna) +
+  geom_point(aes(x = timediffTB, y = log10(rna+1), group = factor(id)), color = "grey", size = .8, show.legend = FALSE) +
+  geom_line(aes(x = timediffTB, y = log10(rna+1), group = factor(id)), color = "grey", size = .8, show.legend = FALSE) +
+  geom_ribbon(data = boot_df.rnaafter, aes(x = time_diff, ymin = lower_bound.rnaafter, ymax = upper_bound.rnaafter), alpha = 0.4, fill = "blue") +
+  geom_line(data = boot_df.rnaafter, aes(x = time_diff, y = fitted.rnaafter), color = "blue", linewidth = 1) +
+  geom_hline(yintercept = log10(400)) +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(0, 360), expand = c(0,0)) +
+  scale_y_continuous(expand = c(0, 0), limits = c(0,8)) +
+  xlab("Days to TB date") +
+  ylab("")+
+  theme_bw()
 
-library(cowplot)
-tbtrend.presenting <- plot_grid(plot.cd4_tb, plot.rna_tb)
+plot.rna_tbafter
 
-tbtrend.presenting <- grid.arrange(plot.cd4_tb, plot.rna_tb, ncol=2, 
-             top = "Lab data with seperately fitted linear-mixed model before and after TB diagnosis (presenting with TB)") 
 
-ggsave(plot = tbtrend.presenting, filename = "../results/plots_lab/tbtrend.presenting.png", width = width_descr*2, height = height_descr)
+tbtrend.presenting <- grid.arrange(plot.cd4_tbbefore, plot.cd4_tbafter, plot.rna_tbbefore, plot.rna_tbafter, ncol=2 ,top = "Lab data with seperately fitted linear-mixed model before and after TB diagnosis") 
+
+ggsave(plot = tbtrend.presenting, filename = "../results/plots_lab/tbtrend.presenting.png", width = width_descr*3, height = height_descr*2)
 
 
 
@@ -1006,7 +1175,7 @@ afterNext <- afterTB %>%
 non_suppression_before <- beforeNext %>%
   group_by(id) %>%
   filter(rna > rna_supression_treshold & next_rna > rna_supression_treshold & cd4 < cd4_suppression_treshold & next_cd4 < cd4_suppression_treshold) %>%
-  slice_min(labdate, n = 1) %>% 
+  slice_min(labdate, n = 1) %>% #only one incidence possible per person
   dplyr::select(id, labdate)
 
 non_suppression_after<- afterNext %>%
@@ -1095,7 +1264,7 @@ incidence_sup <- df_viralsup %>%
   ggplot() +
   geom_point(aes(x = type, y = pois$rate)) +
   geom_errorbar(aes(x= type, ymin = pois$lower, ymax = pois$upper), width = 0.1)+
-  labs(x= "", y = "Incidence per 1,000 person-years", title = "Viral suppression") +
+  labs(x= "", y = "Incidence per 1,000 person-years", title = "Virally suppressed") +
   theme_bw() +
     theme(plot.title = element_text(hjust = 0.5)) +
   scale_y_continuous(limits = c(0,200), expand = c(0,0))
@@ -1106,14 +1275,14 @@ incidence_nonsup <- df_viralnonsup %>%
   ggplot() +
   geom_point(aes(x = type, y = pois$rate)) +
   geom_errorbar(aes(x= type, ymin = pois$lower, ymax = pois$upper), width = 0.1)+
-  labs(x= "", y = "", title = "Viral non-suppression") +
+  labs(x= "", y = "", title = "Virally non-suppressed") +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5)) +
   scale_y_continuous(limits = c(0,200), expand = c(0,0))
 
 incidence_nonsup
 
-incidenceviral <- plot_grid(incidence_sup, incidence_nonsup, ncol=2)
+incidenceviral <- grid.arrange(incidence_sup, incidence_nonsup, ncol=2)
 
 ggsave(plot = incidenceviral, filename = "../results/plots_lab/incidenceviral.png", width = width_descr*1.5, height = height_descr)
 
