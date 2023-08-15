@@ -8,7 +8,8 @@ pacman:: p_load(
   haven,
   lme4,
   lmerTest,
-  mgcv
+  mgcv,
+  gridExtra
 )
 
 # Set seed for reproducibility
@@ -98,12 +99,15 @@ hist(residuals.rna, main = "Histogram of Residuals", xlab = "Residuals")
 ### Plotting ----
 
 #CD4
+
+model.cd4_spline <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = rec.cd4, method = "REML")
+
 newdata.cd4 <- data.frame(
-  time_diff = seq(min(rec.cd4$time_diff), max(rec.cd4$time_diff), length.out=100),
-  id = rep(rec.cd4$id)[1], 100)
+  time_diff = seq(min(rec.cd4$time_diff), max(rec.cd4$time_diff), length.out=1000),
+  id = rep(1, 1000))
 
 preds.cd4 <- predict(model.cd4_spline, newdata=newdata.cd4, se=TRUE)
-newdata.cd4$fit <- preds$fit
+newdata.cd4$fit <- preds.cd4$fit
 newdata.cd4$lowerCI <- preds.cd4$fit - 1.96 * preds.cd4$se.fit
 newdata.cd4$upperCI <- preds.cd4$fit + 1.96 * preds.cd4$se.fit
 
@@ -139,8 +143,8 @@ print(trend.cd42)
 plot(model.rna_spline, se=TRUE)
 
 newdata.rna <- data.frame(
-  time_diff = seq(min(rec.rna$time_diff), max(rec.rna$time_diff), length.out=100),
-  id = rep(rec.rna$id)[1], 100)
+  time_diff = seq(min(rec.rna$time_diff), max(rec.rna$time_diff), length.out=1000),
+  id = rep(1, 1000))
 
 preds.rna <- predict(model.rna_spline, newdata=newdata.rna, se=TRUE)
 newdata.rna$fit <- preds.rna$fit

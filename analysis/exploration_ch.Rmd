@@ -22,8 +22,6 @@ pacman:: p_load(
   inspectdf,
   flextable,
   epitools,
-  rayshader,#3dplot
-  htmlwidgets,#3dplot
   rgl,#3dplot
   lme4,
   merTools, #CI for multilevel
@@ -163,139 +161,58 @@ tb %>%
 Remarks: We defined incident as TB diagnosis after two months of starting ART. For this reason we'll exclude the patients with a TB case before that and begin counting the person years after the second month.
 
 ```{r}
-#incidence
-
-# Overall TB incidence rate
-overall_tb_incidence <- ch %>%
-  mutate(art_start_date_2m = art_start_date + months(2), 
-         persontime = ifelse(case_incident_2m == 1,
-                             as.numeric(difftime(date_tb, art_start_date_2m, units = "days")) / 360, #convert to years
-                             ifelse(!is.na(exitdate),
-                                    as.numeric(difftime(exitdate, art_start_date_2m, units = "days")) / 360,  
-                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date_2m, units = "days")) /360  
-                             ))) %>% 
-  filter(persontime > 0) %>%
-  summarise(tb_incidence = sum(case_incident_2m == 1), 
-            person_years = sum(persontime)/1000) %>% 
-  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95)) 
-
-# Incidence calculations by each rna_group
-incidence_by_rna <- ch %>%
-  mutate(art_start_date_2m = art_start_date + months(2), 
-         persontime = ifelse(case_incident_2m == 1,
-                             as.numeric(difftime(date_tb, art_start_date_2m, units = "days")) / 360, 
-                             ifelse(!is.na(exitdate),
-                                    as.numeric(difftime(exitdate, art_start_date_2m, units = "days")) / 360,  
-                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date_2m, units = "days")) /360  
-                             ))) %>% 
-  filter(persontime > 0) %>%
-  group_by(rna_group) %>%
-  summarise(tb_incidence = sum(case_incident_2m == 1), 
-            person_years = sum(persontime)/1000) %>% 
-  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95))
-
-# Incidence calculations by each cd4_group
-incidence_by_cd4 <- ch %>%
-  mutate(art_start_date_2m = art_start_date + months(2), 
-         persontime = ifelse(case_incident_2m == 1,
-                             as.numeric(difftime(date_tb, art_start_date_2m, units = "days")) / 360, 
-                             ifelse(!is.na(exitdate),
-                                    as.numeric(difftime(exitdate, art_start_date_2m, units = "days")) / 360,  
-                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date_2m, units = "days")) /360  
-                             ))) %>% 
-  filter(persontime > 0) %>%
-  group_by(cd4_group) %>%
-  summarise(tb_incidence = sum(case_incident_2m == 1), 
-            person_years = sum(persontime)/1000) %>% 
-  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95))
-
-#cd4plot
-
-incidence_cd4 <- incidence_by_cd4 %>% 
-  ggplot() +
-  geom_point(aes(x = cd4_group, y = pois$rate)) +
-  geom_errorbar(aes(x= cd4_group, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
-  geom_point(aes(x = "overall", y=overall_tb_incidence$pois$rate)) +
-  geom_errorbar(aes(x= "overall", ymin = overall_tb_incidence$pois$lower, 
-                    ymax = overall_tb_incidence$pois$upper), width = 0.2) +
-  labs(x= "Baseline CD4 cell count", y = "TB incidence per 1,000 person-years") +
-  theme_bw()
-incidence_cd4
-
-ggsave(plot = incidence_cd4, filename = "../results/incidence_cd4.png", width = width_descr, height = height_descr)
-
-#rnaplot
-
-incidence_rna <- incidence_by_rna %>% 
-  ggplot() +
-  geom_point(aes(x = rna_group, y = pois$rate)) +
-  geom_errorbar(aes(x= rna_group, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
-  geom_point(aes(x = "overall", y=overall_tb_incidence$pois$rate)) +
-  geom_errorbar(aes(x= "overall", ymin = overall_tb_incidence$pois$lower, 
-                    ymax = overall_tb_incidence$pois$upper), width = 0.2) +
-  labs(x= "Baseline HIV RNA viral load", y = "TB incidence per 1,000 person-years") +
-  theme_bw()
-
-incidence_rna
-
-ggsave(plot = incidence_rna, filename = "../results/incidence_rna.png", width = width_descr, height = height_descr)
-
-#time to tb
-time_to_tb <- ch %>% 
-  filter(case_incident_2m ==1) %>% 
-  mutate(time_to_tb = as.numeric(date_tb - (art_start_date + months(2)))) %>% 
-  summarise(median = median(time_to_tb, na.rm = TRUE),
-            "25%" = quantile(time_to_tb, 0.25, na.rm = TRUE),
-            "75%" = quantile(time_to_tb, 0.75, na.rm = TRUE))
-
 #incidence of viral non-suppression
 rna_supression_treshold <- 400
 cd4_suppression_treshold <- 350
 
 # Sorting the data by id and date
-lab_long <- ch_lab_long %>% arrange(id, labdate) %>% 
+lab_long <- art.long %>% 
+  arrange(id, labdate) %>% 
   filter(labdate > art_start_date)
 
-# Creating the next_rna_value and next_cd4_value columns
+# Creating the next_rna_value, next_cd4_value, and next_labdate columns
 lab_long_next <- lab_long %>% 
   group_by(id) %>% 
-  mutate(next_rna = lead(rna, order_by = labdate), #?lead: find the next value in a vector
-         next_cd4 = lead(cd4, order_by = labdate))
+  mutate(next_rna = lead(rna, order_by = labdate),
+         next_cd4 = lead(cd4, order_by = labdate),
+         next_labdate = lead(labdate, order_by = labdate)) # add the next_labdate column
 
 # Filter the rows where both the current and next rna_value are >400 and cd4_value are <350
 non_suppression_dates <- lab_long_next %>%
   group_by(id) %>%
   filter(rna > rna_supression_treshold & next_rna > rna_supression_treshold & cd4 < cd4_suppression_treshold & next_cd4 < cd4_suppression_treshold) %>%
-  slice_min(labdate, n = 1) %>% 
-  dplyr::select(id, labdate)
+  slice_min(next_labdate, n = 1) %>% # Use slice_min on next_labdate
+  dplyr::select(id, next_labdate)   # Select next_labdate instead of labdate
+
+# Print non_suppression_dates to see the results
+print(non_suppression_dates)
 
 suppression_dates <- lab_long_next %>%
   group_by(id) %>%
   filter(rna < rna_supression_treshold & next_rna < rna_supression_treshold & cd4 > cd4_suppression_treshold & next_cd4 > cd4_suppression_treshold) %>%
-  slice_min(labdate, n = 1) %>% 
-  dplyr::select(id, labdate)
+  slice_min(next_labdate, n = 1) %>% 
+  dplyr::select(id, next_labdate)
 
 # Joining the suppression_dates with hiv
-hiv_nonsup <- left_join(ch, non_suppression_dates, by = "id") %>% 
-  rename(viral_non_suppression = labdate)
+hiv_nonsup <- left_join(art, non_suppression_dates, by = "id") %>% 
+  rename(viral_non_suppression = next_labdate)
 
-hiv_sup <- left_join(ch, suppression_dates, by = "id") %>% 
-  rename(viral_suppression = labdate)
+hiv_sup <- left_join(art, suppression_dates, by = "id") %>% 
+  rename(viral_suppression = next_labdate)
 
 viral_non_suppression_incidence <- hiv_nonsup %>%
-  select(id, viral_non_suppression, art_start_date, exitdate) %>% 
-  mutate(persontime = ifelse(!is.na(viral_non_suppression),
-                            as.numeric(difftime(viral_non_suppression, art_start_date, units = "days")) / 360,
-                            ifelse(!is.na(exitdate),
-                                    as.numeric(difftime(exitdate, art_start_date, units = "days")) / 360,  
-                                    as.numeric(difftime(as.Date("2022-12-31"), art_start_date, units = "days")) /360  
-                             ))) %>% 
+  dplyr::select(id, viral_non_suppression, art_start_date, exitdate , last_persontime) %>% 
+  mutate(persontime_years = case_when(
+           !is.na(viral_non_suppression)~ as.numeric(difftime(viral_non_suppression, art_start_date, units = "days")/360),
+           is.na(viral_non_suppression) ~ last_persontime/360
+         )) %>% 
+  filter(persontime_years > 0) %>% 
   summarise(sup_incidence = sum(!is.na(viral_non_suppression)), 
-            person_years = sum(persontime)/1000) %>% 
+            person_years = sum(persontime_years)/1000) %>% 
   mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95))
 
 viral_suppression_incidence <- hiv_sup %>%
-  select(id, viral_suppression, art_start_date, exitdate) %>% 
+  dplyr::select(id, viral_suppression, art_start_date, exitdate) %>% 
   mutate(persontime = ifelse(!is.na(viral_suppression),
                             as.numeric(difftime(viral_suppression, art_start_date, units = "days")) / 360,
                             ifelse(!is.na(exitdate),
@@ -305,22 +222,24 @@ viral_suppression_incidence <- hiv_sup %>%
   summarise(sup_incidence = sum(!is.na(viral_suppression)), 
             person_years = sum(persontime)/1000) %>% 
   mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95))
+
+
 #time to viral suppression
 
 time_to_virnonsup <- hiv_nonsup %>% 
-  select(id, viral_non_suppression, art_start_date) %>% 
+  dplyr::select(id, viral_non_suppression, art_start_date) %>% 
   mutate(time_to_sup = as.numeric(viral_non_suppression-art_start_date)) %>% 
   summarise(med = median(time_to_sup, na.rm = TRUE),
             "25" = quantile(time_to_sup, 0.25, na.rm = TRUE),
             "75" = quantile(time_to_sup, 0.75, na.rm = TRUE))
 
 time_to_virsup <- hiv_sup %>% 
-  select(id, viral_suppression, art_start_date) %>% 
+  dplyr::select(id, viral_suppression, art_start_date) %>% 
   mutate(time_to_sup = as.numeric(viral_suppression-art_start_date)) %>% 
   summarise(med = median(time_to_sup, na.rm = TRUE),
             "25" = quantile(time_to_sup, 0.25, na.rm = TRUE),
             "75" = quantile(time_to_sup, 0.75, na.rm = TRUE))
-
+dx
 ```
 
 ## Plots
@@ -419,224 +338,6 @@ rna_measurements <- zero_rna %>%
   labs(y=("number of rna measurements"), x = "year difference to ART start")
 
 ggsave(plot = rna_measurements, filename = "../results/rna_meas.png", width = width_descr, height = height_descr)
-
-```
-
-```{r plot trends cd4 and rna}
-df.pred <- ch_lab_long %>%
-  filter(time_diff > -30 & time_diff < 100)
-
-#### raw plot CD4 ----
-
-cd4_yearRAW <- df.pred %>%
-  ggplot(aes(x = time_diff)) +
-  geom_line(aes(group = factor(id), y = sqrt(cd4)), color = "grey", alpha = .2) +
-  geom_hline(yintercept = sqrt(350)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  theme_bw() +
-  labs(x = "", title = "raw data + loess") +
-  geom_smooth(aes(y = sqrt(cd4)), method = "loess", se = TRUE, color = "red", fill = "blue") +
-  scale_x_continuous(limits = c(-30,100)) +
-  scale_y_continuous(expand = c(0,0), limits = c(0,50)) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-print(cd4_yearRAW)
-
-#### raw plot HIV-RNA ----
-
-rna_yearRAW <- df.pred %>%
-  ggplot(aes(x = time_diff)) +
-  geom_line(aes(group = factor(id), y = log10(rna+1)), color = "grey", alpha = .2) +
-  geom_hline(yintercept = log10(400)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  theme_bw() +
-  labs(x = "Days since ART start", title = "") +
-  geom_smooth(aes(y = log10(rna+1)), method = "loess", se = TRUE, color = "red", fill = "blue") +
-  scale_x_continuous(limits = c(-30,100)) +
-  scale_y_continuous(expand = c(0,0), limits = c(0,10)) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-print(rna_yearRAW)
-
-#### fitted plot CD4 ----
-
-new_data <- data.frame(
-  time_diff = seq(min(df.pred$time_diff), max(df.pred$time_diff), length.out = 1000),
-  id = rep(unique(df.pred$id)[1], 1000)  # use the first unique id
-)
-
-## mixed-effect model
-
-model_cd4 <- lmer(sqrt(cd4) ~ time_diff + (1|id), data = df.pred)
-
-# Bootstrap the predictions
-set.seed(123)  # for reproducibility
-boot_preds.cd4 <- bootMer(model_cd4, FUN = function(.x) predict(.x, newdata = new_data, re.form = NA), nsim = 100)
-
-# Calculate percentiles for prediction intervals
-lower_bound.cd4 <- apply(boot_preds.cd4$t, 2, quantile, probs = 0.025)
-upper_bound.cd4 <- apply(boot_preds.cd4$t, 2, quantile, probs = 0.975)
-fitted.cd4 <- apply(boot_preds.cd4$t, 2, mean)
-
-# Combine into a data frame
-boot_df.cd4 <- data.frame(time_diff = new_data$time_diff, lower_bound.cd4, upper_bound.cd4, fitted.cd4)
-
-## spline model 
-
-# Fit a GAM with a spline term
-model_cd4_spline <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = df.pred, method = "REML")
-#Restricted Maximum Likelihood (REML) estimation method
-
-# Function to fit the model and generate predictions
-fit_and_predictCD4 <- function(data, indices) {
-  # Fit the model with the specified indices
-  fit <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = data[indices, ], method = "REML")
-  
-  # Generate predictions
-  pred <- predict(fit, newdata = new_data)
-  
-  return(pred)
-}
-
-# Set seed for reproducibility
-set.seed(123)
-
-# Bootstrap predictions
-boot_preds.cd4_spline <- boot(data = df.pred, statistic = fit_and_predictCD4, R = 100)
-
-# Calculate percentiles for prediction intervals
-lower_bound.cd4_spline <- apply(boot_preds.cd4_spline$t, 2, quantile, probs = 0.025)
-upper_bound.cd4_spline <- apply(boot_preds.cd4_spline$t, 2, quantile, probs = 0.975)
-fitted.cd4_spline <- apply(boot_preds.cd4_spline$t, 2, mean)
-
-# Combine into a data frame
-boot_df.cd4_spline <- data.frame(time_diff = new_data$time_diff, lower_bound.cd4_spline, upper_bound.cd4_spline, fitted.cd4_spline)
-
-# Merge with the existing data frame
-boot_df.cd4 <- merge(boot_df.cd4, boot_df.cd4_spline, by = "time_diff")
-
-## Plot 
-
-cd4_yearFIT <- boot_df.cd4 %>%
-  ggplot(aes(x = time_diff)) +
-  geom_hline(yintercept = sqrt(350)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  geom_line(aes(y = fitted.cd4), color = "red") +
-  geom_ribbon(aes(ymin = lower_bound.cd4, ymax = upper_bound.cd4), alpha = 0.2, fill = "red") +
-  geom_line(aes(y = fitted.cd4_spline), color = "blue") +
-  geom_ribbon(aes(ymin = lower_bound.cd4_spline, ymax = upper_bound.cd4_spline), alpha = 0.2, fill = "blue") +
-  theme_bw() +
-  labs(x = "", y = "",title = "LMEM (red) + GAM with a spline (blue)") +
-  scale_x_continuous(limits = c(-30,100)) +
-  scale_y_continuous(expand = c(0,0), limits = c(0,50)) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-print(cd4_yearFIT)
-
-cd4_yearFITzoomed <- cd4_yearFIT +
-  scale_x_continuous(limits = c(0,30), expand = c(0,0)) +
-  scale_y_continuous(limits = c(15,20), expand = c(0,0)) +
-  labs(title = "LMEM (red) + GAM with a spline (blue) rescaled")
-
-print(cd4_yearFITzoomed)
-
-#### fitted plot HIV-RNA ----
-## mixed-effect model
-model_rna <- lmer(log10(rna+1) ~ time_diff + (1|id), data = df.pred)
-
-# Bootstrap the predictions
-set.seed(123)  # for reproducibility
-boot_preds.rna <- bootMer(model_rna, FUN = function(.x) predict(.x, newdata = new_data, re.form = NA), nsim = 100)
-
-# Calculate percentiles for prediction intervals
-lower_bound.rna <- apply(boot_preds.rna$t, 2, quantile, probs = 0.025)
-upper_bound.rna <- apply(boot_preds.rna$t, 2, quantile, probs = 0.975)
-fitted.rna <- apply(boot_preds.rna$t, 2, mean)
-
-# Combine into a data frame
-boot_df.rna <- data.frame(time_diff = new_data$time_diff, lower_bound.rna, upper_bound.rna, fitted.rna)
-
-## spline model 
-
-# Fit a GAM with a spline term
-model_rna_spline <- gam(log10(rna+1) ~ s(time_diff) + s(id, bs="re"), data = df.pred, method = "REML")
-
-# Function to fit the model and generate predictions
-fit_and_predictRNA <- function(data, indices) {
-  # Fit the model with the specified indices
-  fit <- gam(log10(rna+1) ~ s(time_diff) + s(id, bs="re"), data = data[indices, ], method = "REML")
-  
-  # Generate predictions
-  pred <- predict(fit, newdata = new_data)
-  
-  return(pred)
-}
-
-# Set seed for reproducibility
-set.seed(123)
-
-# Bootstrap predictions
-boot_preds.rna_spline <- boot(data = df.pred, statistic = fit_and_predictRNA, R = 100)
-
-# Calculate percentiles for prediction intervals
-lower_bound.rna_spline <- apply(boot_preds.rna_spline$t, 2, quantile, probs = 0.025)
-upper_bound.rna_spline <- apply(boot_preds.rna_spline$t, 2, quantile, probs = 0.975)
-fitted.rna_spline <- apply(boot_preds.rna_spline$t, 2, mean)
-
-# Combine into a data frame
-boot_df.rna_spline <- data.frame(time_diff = new_data$time_diff, lower_bound.rna_spline, upper_bound.rna_spline, fitted.rna_spline)
-
-# Merge with the existing data frame
-boot_df.rna <- merge(boot_df.rna, boot_df.rna_spline, by = "time_diff")
-
-## Plot 
-
-rna_yearFIT <- boot_df.rna %>%
-  ggplot(aes(x = time_diff)) +
-  geom_hline(yintercept = log10(400)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  geom_line(aes(y = fitted.rna), color = "red") +
-  geom_ribbon(aes(ymin = lower_bound.rna, ymax = upper_bound.rna), alpha = 0.4, fill = "red") +
-  geom_line(aes(y = fitted.rna_spline), color = "blue") +
-  geom_ribbon(aes(ymin = lower_bound.rna_spline, ymax = upper_bound.rna_spline), alpha = 0.4, fill = "blue") +
-  theme_bw() +
-  labs(x = "Days since ART start", y = "", title = "") +
-  scale_x_continuous(limits = c(-30,100)) +
-  scale_y_continuous(expand = c(0,0), limits = c(0,10)) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-print(rna_yearFIT)
-
-rna_yearFITzoomed <- rna_yearFIT +
-  scale_x_continuous(limits = c(0,30),expand = c(0,0))+
-  scale_y_continuous(limits = c(0,5), expand = c(0,0))
-
-print(rna_yearFITzoomed)
-
-#### fusion + export ----
-
-trends <- grid.arrange(cd4_yearRAW, cd4_yearFIT, cd4_yearFITzoomed, rna_yearRAW, rna_yearFIT, rna_yearFITzoomed, ncol=3) 
-
-ggsave(plot = trends, filename = "../results/plots_lab/trends_slope.png", width = width_descr*4, height = height_descr*3)
-
-print(trends)
-
-#### final plot ----
-
-cd4_yearFITfinal <- boot_df.cd4 %>%
-  ggplot(aes(x = time_diff)) +
-  geom_line(data = df.pred, aes(group = factor(id), x = time_diff, y = sqrt(cd4)), color = "grey", alpha = .2) +
-  geom_hline(yintercept = sqrt(350)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  geom_line(aes(y = fitted.cd4_spline), color = "blue") +
-  geom_ribbon(aes(ymin = lower_bound.cd4_spline, ymax = upper_bound.cd4_spline), alpha = 0.2, fill = "blue") +
-  theme_bw() +
-  labs(x = "", y = "",title = "LMEM (red) + GAM with a spline (blue)") +
-  scale_x_continuous(limits = c(-30,100)) +
-  scale_y_continuous(expand = c(0,0), limits = c(0,50)) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-print(cd4_yearFITfinal)
 
 ```
 
