@@ -2,88 +2,177 @@
 
 if(!require(pacman)) install.packages("pacman")
 
-pacman:: p_load(
-  dplyr, # for data wrangling
+pacman:: p_load( # for data wrangling
   ggplot2, # for plotting
   haven,
   lme4,
   sjPlot,
-  pROC,
-  caret,
-  car
+  pROC, #ROC curve
+  caret, #confusionmatrix
+  car,
+  dplyr,
+  reshape2
 )
 
 
-##### data import ----
-table(logistic$cohort)
-table(logistic$sex)
-table(logistic$region_born)
-table(logistic$rna_group)
-table(logistic$cd4_group)
+##### data import / preprocessing ----
+
+custom_breaks <- c(16, 24, 34, 44, 100)
+
+ch <- readRDS("data_clean/art_ch.rds") %>% 
+  mutate(agegroup = cut(age_at_ART_start, breaks = custom_breaks, include.lowest = TRUE),
+         agegroup = as.factor(agegroup),
+         incidence = as.factor(case_incident_2m),
+         baselineCD4 = as.factor(cd4_group),
+         baselineRNA = as.factor(rna_group),
+         born = as.factor(region_born)) %>% 
+  dplyr::select(id, incidence, sex, cohort, born, agegroup, baselineCD4, baselineRNA)
 
 
+levels(logistic$agegroup)
 
-
-logistic_ch <- readRDS("data_clean/art_ch.rds")
-
-logistic_test <- logistic_ch %>% 
-  mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA"))) %>% 
-  group_by(cohort) %>% 
-  mutate(cases_p_cohort = sum(case_incident_2m == 1)) %>% 
-  ungroup()
-
-logistic_sa <- #...
+sa <- #...
   
-logistic <- logistic_test #... #join them together 
+logistic <- ch %>% 
+  mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA"))) #... #join them together 
 
 #### model ----
 
-logistic_main <- glmer(case_incident_2m ~ cohort + sex + region_born + age_at_ART_start + rna_group + cd4_group + (1| rna_group), data = logistic, family = "binomial")
+#logistic_main <- glmer(incidence ~ cohort + sex + born + agegroup + baselineRNA + baselineCD4 + (1| baselineRNA), data = logistic, family = "binomial")
 
-#### results ----
+model.log <- glm(incidence ~ cohort + sex + agegroup + baselineRNA + baselineCD4, 
+                      data = logistic, 
+                      family = "binomial")
+
+#### Results ----
 
 # Print model summary
-summary(logistic_main)
+summary(model.log)
 
 # Odds Ratios
 # Interpretation:
 # OR = 1: No association between exposure and outcome.
 # OR > 1: The exposure is associated with higher odds of outcome.
 # OR < 1: The exposure is associated with lower odds of outcome.
-exp(fixef(logistic_main))
+# Odds Ratios
+or <- exp(coef(model.log))
 
-# Random effects
-ranef(logistic_main)
+# Confidence Intervals
+ci <- exp(confint(model.log))
+
+ref_categories <- sapply(logistic[, c('cohort', 'sex', 'agegroup', 'baselineRNA', 'baselineCD4')], function(x) levels(x)[1])
+print(ref_categories)
+
+n <- length(ref_categories)
+
+reference_data <- data.frame(
+  OR = rep(1, n),
+  LowerCI = rep(1, n),
+  UpperCI = rep(1, n),
+  row.names = ref_categories
+)
+
+# Combining results
+results <- data.frame(OR = round(or,3), 
+                      LowerCI = round(ci[,1],3), 
+                      UpperCI = round(ci[,2],3))
+
+final_results <- rbind(reference_data, results)
 
 #plot odds ratio
-plot_model(logistic_main, type = 'est', title = 'Fixed Effects')
+plot <- plot_model(model.log, 
+                vline.color = "red",
+                show.values = TRUE, 
+                value.offset = .3,
+                group.terms = c(1, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5)) +
+  theme_bw()+
+  labs(title = "Incidence of TB") + 
+  theme(plot.title = element_text(hjust = 0.5))
+plot
 
-## model vs observed
-# Get the predicted probabilities
-predicted_probabilities <- predict(logistic_main, type = "response")
+ggsave(plot = plot, filename = "results/incidence/odds.png")
+
+#### Diagnostics ----
+
+#reference categories:
+levels(logistic$agegroup)
+levels(logistic$baselineCD4)
+levels(logistic$baselineRNA)
+
+# Get the predicted probabilities from the glm model
+predicted_probabilities <- predict(model.log, type = "response", newdata = logistic)
 
 # Create the ROC curve
-roc_obj <- roc(response = logistic$case_incident_2m, predictor = predicted_probabilities)
+roc_obj <- roc(response = logistic$incidence, predictor = predicted_probabilities)  # changed `case_incident_2m` to `incidence` 
 
 # Print the ROC curve
 print(roc_obj)
-#An AUC of 1 means the model has perfect discrimination, while an AUC of 0.5 means the model's discrimination is no better than random chance.
 
 # Plot the ROC curve
-plot(roc_obj, print.auc = TRUE)
-#It is equivalent to the probability that a randomly chosen positive instance is ranked higher than a randomly chosen negative instance, i.e. it is equivalent to the two sample Wilcoxon rank-sum statistic.
+plotROC <- plot(roc_obj, print.auc = TRUE)
 
 # Calculate the optimal threshold
 roc_obj_optimal <- coords(roc_obj, "best")
 
-# The 'best' method uses the Youden's J statistic (sensitivity + specificity - 1)
-optimal_threshold <- roc_obj_optimal["threshold"]
-
 # Use this threshold to classify probabilities into binary outcomes
 predicted_class <- logistic %>% 
   mutate(prediction = predicted_probabilities,
-         classification = as.factor(ifelse(prediction > optimal_threshold$threshold, 1, 0)),
-         case_incident_2m = as.factor(case_incident_2m))
+         classification = as.factor(ifelse(prediction > as.numeric(roc_obj_optimal["threshold"]), 1, 0)),
+         incidence = as.factor(incidence))
 
 # Generate the confusion matrix with the new threshold
-confusionMatrix(predicted_class$classification, predicted_class$case_incident_2m)
+confusionMatrix(predicted_class$classification, predicted_class$incidence, positive = "1")
+
+#### Plots (diagnostic) ----
+## Confusion matrix
+
+# Generate the confusion matrix
+cm <- confusionMatrix(predicted_class$classification, predicted_class$incidence, positive = "1")
+
+# Convert the confusion matrix to a table format
+cm_table <- as.table(cm$table)
+
+# Melt the table for ggplot
+cm_melted <- melt(cm_table) %>% 
+  mutate(Reference = as.factor(Reference),
+         Prediction = as.factor(Prediction))
+
+# Plot using ggplot2
+# Plot using ggplot2
+plot_confusion <- ggplot(data=cm_melted, aes(x=Prediction, y=Reference)) +
+  geom_tile(aes(fill=value), color='white') +
+  geom_text(aes(label=sprintf("%d", value)), vjust=1) +
+  scale_fill_gradient(low="white", high="blue") +
+  scale_x_discrete(limits=c("0", "1")) +   # Set discrete x-axis scale
+  scale_y_discrete(limits=c("0", "1")) +   # Set discrete y-axis scale
+  theme_bw() +
+  labs(title="Confusion Matrix", x="Prediction", y="Observed", fill="Frequency")+
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+## Key metrics
+cm2 <- confusionMatrix(predicted_class$classification, predicted_class$incidence, positive = "1")
+key_metrics <- c(Accuracy = cm2$overall['Accuracy'],
+                 Sensitivity = cm2$byClass['Sensitivity'],
+                 Specificity = cm2$byClass['Specificity'],
+                 PPV = cm2$byClass['Pos Pred Value'],
+                 NPV = cm2$byClass['Neg Pred Value'])
+
+# Convert to data frame for ggplot
+key_metrics_df <- data.frame(Metric = names(key_metrics), Value = as.numeric(key_metrics))
+
+key_metrics_df$Metric <- sub("\\..*", "", key_metrics_df$Metric)
+
+# Plot
+plot_metrics <- ggplot(key_metrics_df, aes(x = Metric, y = Value)) +
+  geom_bar(stat = 'identity', fill = 'steelblue') +
+  geom_text(aes(label=sprintf("%.2f", Value)), vjust=2, color = "white") +
+  ylim(0, 1) +
+  labs(title="Key Metrics from Confusion Matrix", y="", x ="") +
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0.5))+
+  scale_y_continuous(limits = c(0,1), expand = c(0,0))
+
+
+  
+

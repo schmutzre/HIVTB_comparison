@@ -14,77 +14,86 @@ pacman:: p_load(
   ggplot2, # for plotting
   haven,
   survival,
-  gridExtra
+  gridExtra,
+  cmprsk,
+  sjPlot
 )
 
 ##### data import ----
+custom_breaks <- c(16, 24, 34, 44, 100)
 
-cox_ch <- readRDS("data_clean/df_inc_ch.rds")
+cox_ch <- readRDS("data_clean/art_ch.rds") %>% 
+  mutate(persontime_years = case_when(
+    case_incident_2m == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
+    case_incident_2m == 0 ~ last_persontime/360
+  )
+  )  %>% 
+  filter(persontime_years > 0) %>% 
+  mutate(agegroup = cut(age_at_ART_start, breaks = custom_breaks, include.lowest = TRUE),
+           agegroup = as.factor(agegroup),
+           baselineCD4 = as.factor(cd4_group),
+            incidence = case_incident_2m,
+           baselineRNA = as.factor(rna_group),
+           born = as.factor(region_born)) %>%
+  dplyr::select(id, art_start_date, incidence, date_tb, cohort, persontime_years, exitdate, born, exit_why, last_fup_date, agegroup, baselineCD4, baselineRNA, sex) %>% 
+  mutate(event_type = case_when(
+    incidence == 1 ~ 1,
+    !is.na(exitdate) ~ 2,
+    TRUE ~0 # Loss to follow-up isnt considered a competing risk
+  ))
+
+cox_ch$sex <- droplevels(cox_ch$sex)
 
 cox_test <- cox_ch %>% 
-  mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA"))) %>% 
-  group_by(cohort) %>% 
-  mutate(cases_p_cohort = sum(case_incident_2m)) %>% 
-  ungroup()
+  mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA"))) 
 
 cox_sa <- #...
   
 cox <- cox_test #... #join them together 
+cox$cohort <- droplevels(cox$cohort)
+cox$agegroup <- droplevels(cox$agegroup)
+cox$sex <- droplevels(cox$sex)
+cox$baselineCD4 <- droplevels(cox$baselineCD4)
+cox$baselineRNA <- droplevels(cox$baselineRNA)
 
 #### model ----
 
-# Create a survival object with your time and event variables
-cox.surv_obj <- Surv(cox$persontime_years, cox$case_incident_2m)
+# Create a survival object with time and event variables
+cox.surv_obj <- Surv(cox$persontime_years, cox$incidence)
 
 #Model
-cox_model <- coxph(cox.surv_obj ~ cohort + age_art_start + sex, data = cox)
+model.cox <- coxph(cox.surv_obj ~ cohort + agegroup + sex +baselineCD4 + baselineRNA, data = cox)
 
-#### results/plotting ----
-#The exponentiated coefficients in the second column of the first panel (and in the first column of the second panel) of the output are interpretable as multiplicative effects on the hazard. 
-#Thus, for example, holding the other covariates constant, an additional year of age reduces the yearly hazard of incident TB by a factor of eb2 = 0.9956 on average.
-sum_cox <- summary(cox_model)
+#### results /plot ----
 
-# Find the row corresponding to the predictor of interest
-row_index <- which(rownames(sum_cox$coefficients) == "cohortSA")
+summary(model.cox)
 
-# Extract the exponentiated coefficient (hazard ratio)
-exp_coef <- sum_cox$conf.int[row_index, "exp(coef)"]
-lower_ci <- sum_cox$conf.int[row_index, "lower .95"]
-upper_ci <- sum_cox$conf.int[row_index, "upper .95"]
+plot_model(model.cox)
+hr <- exp(coef(model.cox))
+ci <- exp(confint(model.cox))
 
-# Create a data frame for plotting
-plot_data <- data.frame(
-  Predictor = "cohort",
-  Hazard_Ratio = exp_coef,
-  Lower_CI = lower_ci,
-  Upper_CI = upper_ci
-)
+#plot odds ratio
+plot <- plot_model(model.cox, 
+                   vline.color = "red",
+                   show.values = TRUE, 
+                   value.offset = .3,
+                   group.terms = c(1, 2, 2, 2, 3, 4, 4, 4, 5, 5, 5)) +
+  theme_bw()+
+  labs(title = "Hazard Ratios for Factors Associated with TB Incidence") + 
+  theme(plot.title = element_text(hjust = 0.5))
 
-# Create the plot
-hazard_ratio <- ggplot(plot_data, aes(x = Hazard_Ratio, y = "", xmin = Lower_CI, xmax = Upper_CI)) +
-  geom_point(size = 2, color = "black") +
-  annotate("rect", xmin = -Inf, xmax = 1, ymin = -Inf, ymax = Inf, fill = "#FFA07A", alpha = 0.3) +
-  annotate("rect", xmin = 1, xmax = Inf, ymin = -Inf, ymax = Inf, fill = "#B0C4DE", alpha = 0.3) +
-  geom_errorbarh(aes(xmin = Lower_CI, xmax = Upper_CI), height = 0.1, linewidth = 1,  color = "black") +
-  scale_x_continuous(breaks = c(0, 0.5, 1, 1.5, 2, 2.5,  3), limits = c(0, 3), expand = c(0,0)) +
-  geom_vline(xintercept = 1, linetype = "dashed", color = "darkblue", linewidth = 1) +  # Add a dashed line at HR = 1 (no effect)
-  geom_text(aes(x = 0.5, y = 1.5, label = "Switzerland"), hjust = 0.5, vjust = 1, size = 5, fontface = "bold") +  
-  geom_text(aes(x = 2, y = 1.5, label = "South Africa"), hjust = 0.5, vjust = 1, size = 5, fontface = "bold") +
-  theme_bw() +
-  labs(x = "Hazard ratio", y = "")
+plot
 
-# Print the plot
-print(hazard_ratio)
-
-ggsave(filename = "results/hazard_ratio.png", plot = hazard_ratio, width = 10, height = 8, dpi = 300)
+ggsave(plot = plot, filename = "results/incidence/hazard.png")
 
 ##### assumptions ----
 
 #A significant p-value (less than 0.05) indicates that the proportional hazards assumption has been violated
 #the smooth line in the plot should be more or less a horizontal line y = 0. 
-cox.fit <- cox.zph(cox_model)
+cox.fit <- cox.zph(model.cox)
 print(cox.fit)
 plot(cox.fit)
 
-
+#### Competing risk ----
+# Compute cumulative incidence for TB considering death as a competing risk
 

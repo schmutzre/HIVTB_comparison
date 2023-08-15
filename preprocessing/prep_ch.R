@@ -19,6 +19,7 @@ var_disease <- read_dta("data_raw/var_disease.dta")
 admin <- read_dta("data_raw/admin.dta")
 modif <- read_dta("data_raw/modif_art.dta")
 
+
 # The followng df are the study populations. Once patients starting ART between 2010-2022 and once patients having a TB diagnosis 
 # between 2010-2022. These dataframes are mostly overlapping. 
 
@@ -27,7 +28,7 @@ filteredBOTH <- complete_ch %>%
     (art_start_date <= as.Date("2022-12-31") & art_start_date >= as.Date("2010-01-01")) |
       (date_tb <= as.Date("2022-12-31") & date_tb >= as.Date("2010-01-01"))
   ) %>% 
-  select(id, born, sex, regdate, risk, art_start_date, art_start_cd4, virus_type, pretreat, disease_tb, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, case_incident_1m, case_incident_2m, exitdate, exit_why, current_art, eligibility_art, tbd_drug_resist___1:tbd_drug_resist_others) %>% 
+  dplyr::select(id, born, ethnicity, sex, regdate, risk, art_start_date, art_start_cd4, virus_type, pretreat, disease_tb, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, case_incident_1m, case_incident_2m, exitdate, exit_why, current_art, eligibility_art, tbd_drug_resist___1:tbd_drug_resist_others) %>% 
   mutate(cohort = as.factor("CH")) %>% 
   mutate(age_at_ART_start = year(art_start_date)-born,
          prevalent_TB = case_when(
@@ -41,7 +42,9 @@ filteredBOTH <- complete_ch %>%
            TRUE ~ 0) 
          )
          
-      
+
+table(filteredBOTH$ethnicity)
+
 #### Prep ----
 
 ## Type of infection
@@ -57,7 +60,7 @@ filteredBOTH <- filteredBOTH %>%
 ## add birth_country
   
 filteredBOTH <- as_factor(filteredBOTH, levels="labels")
-  
+
 # Define a function to map countries to continents
 get_continent <- function(country) {
     africa_countries <- c("Algeria", "Angola", "Cameroon", "Côte dIvoire", "Ethiopia", "Eritrea", "Gambia", "Ghana",
@@ -112,6 +115,11 @@ filteredBOTH <- filteredBOTH %>%
                                       TRUE ~ 0),
          case_incident_1m = case_when(case_incident_2m == "Incident TB" ~ 1,
                                       TRUE ~ 0))
+
+library(flextable)
+
+p1 <- tabyl(filteredBOTH, ethnicity) %>% flextable()
+p2 <- tabyl(filteredBOTH, region_born) %>% flextable()
 
 ## add cd4 and viral load baseline
   
