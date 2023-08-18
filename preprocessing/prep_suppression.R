@@ -40,11 +40,11 @@ suppression_dates <- lab_long_next %>%
 # Joining the suppression_dates with hiv
 hiv_nonsup <- left_join(ch, non_suppression_dates, by = "id") %>% 
   rename(viral_non_suppression = next_labdate) %>% 
-  dplyr::select(id, case_incident_2m, sex, cohort, born, art_start_date, cd4_group, rna_group, viral_non_suppression, last_persontime, exitdate)  # Select next_labdate instead of labdate
+  dplyr::select(id, case_incident_2m, sex, cohort, born, art_start_date, cd4_group, rna_group, viral_non_suppression, last_persontime, exitdate, age_at_ART_start)  # Select next_labdate instead of labdate
 
 hiv_sup <- left_join(ch, suppression_dates, by = "id") %>% 
   rename(viral_suppression = next_labdate) %>% 
-  dplyr::select(id, case_incident_2m, sex, cohort, born, art_start_date, cd4_group, rna_group, viral_suppression, last_persontime, exitdate)  # Select next_labdate instead of labdate
+  dplyr::select(id, case_incident_2m, sex, cohort, born, art_start_date, cd4_group, rna_group, viral_suppression, last_persontime, exitdate, age_at_ART_start)  # Select next_labdate instead of labdate
 
 viral_non_suppression_df <- hiv_nonsup %>%
   mutate(persontime_years.NOsuppression = case_when(

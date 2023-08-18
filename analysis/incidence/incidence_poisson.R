@@ -13,6 +13,10 @@ pacman:: p_load(
   sjPlot
   )
 
+
+width_descr <- 11 / cm(1)
+height_descr <- 8 / cm(1)
+
 ##### data import/ prep ----
 #SHCS
 custom_breaks <- c(16, 24, 34, 44, 100)
@@ -95,13 +99,13 @@ ggsave(filename = "results/incidence/incidence_IRR.png", plot = plot_IRR, width 
 #### assumption ----
 
 ## checking for overdispersion - the Poisson model assumes that the mean and variance of the outcome are equal. If the variance is greater than the mean, the data are overdispersed.
-disp_test <- dispersiontest(model_main, trafo=1)  # 'trafo = 1' for log-transformed data
+disp_test <- dispersiontest(model_pois, trafo=1)  # 'trafo = 1' for log-transformed data
 print(disp_test)
 
 #### secondary plots ----
 
 # Overall TB incidence rate
-indidence.total <- ch %>% 
+incidence.total <- ch %>% 
   summarise(tb_incidence = sum(incidence == 1), 
             person_years = sum(persontime_years)/1000) %>% 
   mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95)) 
@@ -126,10 +130,11 @@ incidence_cd4 <- incidence_by_cd4 %>%
   ggplot() +
   geom_point(aes(x = baselineCD4, y = pois$rate)) +
   geom_errorbar(aes(x= baselineCD4, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
-  geom_point(aes(x = "overall", y=overall_tb_incidence$pois$rate)) +
-  geom_errorbar(aes(x= "overall", ymin = overall_tb_incidence$pois$lower, 
-                    ymax = overall_tb_incidence$pois$upper), width = 0.2) +
+  geom_point(aes(x = "overall", y=incidence.total$pois$rate)) +
+  geom_errorbar(aes(x= "overall", ymin = incidence.total$pois$lower, 
+                    ymax = incidence.total$pois$upper), width = 0.2) +
   labs(x= "Baseline CD4 cell count", y = "TB incidence per 1,000 person-years") +
+  scale_y_continuous(limits = c(0,3), expand = c(0,0))+
   theme_bw()
 
 incidence_cd4
@@ -142,15 +147,20 @@ incidence_rna <- incidence_by_rna %>%
   ggplot() +
   geom_point(aes(x = baselineRNA, y = pois$rate)) +
   geom_errorbar(aes(x= baselineRNA, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
-  geom_point(aes(x = "overall", y=overall_tb_incidence$pois$rate)) +
-  geom_errorbar(aes(x= "overall", ymin = overall_tb_incidence$pois$lower, 
-                    ymax = overall_tb_incidence$pois$upper), width = 0.2) +
-  labs(x= "Baseline HIV RNA viral load", y = "TB incidence per 1,000 person-years") +
+  geom_point(aes(x = "overall", y=incidence.total$pois$rate)) +
+  geom_errorbar(aes(x= "overall", ymin = incidence.total$pois$lower, 
+                    ymax = incidence.total$pois$upper), width = 0.2) +
+  labs(x= "Baseline HIV RNA viral load", y = "") +
+  scale_y_continuous(limits = c(0,3), expand = c(0,0))+
   theme_bw()
 
 incidence_rna
 
 ggsave(plot = incidence_rna, filename = "results/incidence/incidence_rna.png", width = width_descr, height = height_descr)
+
+incidence.both <- grid.arrange(incidence_cd4, incidence_rna, ncol = 2)
+
+ggsave(plot = incidence.both, file = "results/incidence/incidence_both.png", width = width_descr*1.5, height = height_descr)
 
 #time to tb
 time_to_tb <- ch %>% 

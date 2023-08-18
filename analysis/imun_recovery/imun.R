@@ -12,6 +12,8 @@ pacman:: p_load(
   gridExtra
 )
 
+source("utils/plot.R")
+
 # Set seed for reproducibility
 set.seed(123)
 
@@ -28,10 +30,113 @@ rec <- rec_long_ch %>%
   filter(time_diff > -30 & time_diff < 365)
 
 rec.cd4 <- rec %>% 
-  filter(!is.na(cd4))
+  filter(!is.na(cd4)) %>% 
+  mutate(
+    group_30days = as.integer((time_diff %/% 30) + 1),
+    trans.cd4 = sqrt(cd4)
+)
 
+summary_stats.cd4 <- rec.cd4 %>% 
+  group_by(group_30days) %>% 
+  summarise(
+    median_trans.cd4 = median(trans.cd4, na.rm = TRUE),
+    Q1 = quantile(trans.cd4, 0.25, na.rm = TRUE),
+    Q3 = quantile(trans.cd4, 0.75, na.rm = TRUE),
+    time_diff_midpoint = mean(time_diff, na.rm = TRUE),
+    Qlow = quantile(trans.cd4, 0.05, na.rm = TRUE),
+    Qhigh = quantile(trans.cd4, 0.95, na.rm = TRUE),
+    mean = mean(trans.cd4, na.rm = TRUE),
+    se = sd(trans.cd4, na.rm = TRUE) / sqrt(n()),
+    sd = sd(trans.cd4, na.rm = TRUE)
+  )
+
+IQR.cd4 <- ggplot(summary_stats.cd4, aes(x = time_diff_midpoint, y = median_trans.cd4)) +
+  geom_point() +
+  geom_errorbar(
+    aes(ymin = Q1, ymax = Q3),
+    width = 10
+  ) +
+  labs(x = 'Time Difference (days)', y = 'Square root of CD4') +
+  theme_bw() +
+  geom_hline(yintercept = sqrt(350)) 
+
+IQR.cd4
+
+se.cd4 <- ggplot(summary_stats.cd4, aes(x = time_diff_midpoint, y = mean)) +
+  geom_point() +
+  geom_errorbar(
+    aes(ymin = mean - sd, 
+        ymax = mean + sd),
+    width = 10
+  ) +
+  labs(x = 'Time Difference (days)', y = 'Square root of CD4') +
+  theme_bw()+   
+  geom_hline(yintercept = sqrt(350)) 
+  
 rec.rna <- rec %>% 
-  filter(!is.na(rna))
+  filter(!is.na(rna)) %>% 
+  mutate(
+    trans.rna = case_when(
+      rna == 0 ~ log10(runif(1, min = 1, max = 50)),
+      TRUE ~ log10(rna)
+    )
+  )
+
+## checking distribution of measurements
+rec.rna <- rec.rna %>% 
+  mutate(
+    group_30days = as.integer((time_diff %/% 30) + 1)
+  )
+
+# Calculate Q1 and Q3 for each group
+summary_stats <- rec.rna %>% 
+  group_by(group_30days) %>% 
+  summarise(
+    median_trans.rna = median(trans.rna, na.rm = TRUE),
+    Q1 = quantile(trans.rna, 0.25, na.rm = TRUE),
+    Q3 = quantile(trans.rna, 0.75, na.rm = TRUE),
+    time_diff_midpoint = mean(time_diff, na.rm = TRUE),
+    Qlow = quantile(trans.rna, 0.05, na.rm = TRUE),
+    Qhigh = quantile(trans.rna, 0.95, na.rm = TRUE),
+    Mean = mean(trans.rna, na.rm = TRUE),
+    se = sd(trans.rna, na.rm = TRUE) / sqrt(n()),
+    sd = sd(trans.rna, na.rm = TRUE)
+  )
+
+# Plot the data with IQR error bars
+IQR.rna <- ggplot(summary_stats, aes(x = time_diff_midpoint, y = median_trans.rna)) +
+  geom_point() +
+  geom_errorbar(
+    aes(ymin = Q1, ymax = Q3),
+    width = 10
+  ) +
+  labs(x = 'Time Difference (days)', y = 'Log-transformed RNA') +
+  theme_bw() +
+  geom_hline(yintercept = log10(400)) 
+
+se.rna <- ggplot(summary_stats, aes(x = time_diff_midpoint, y = Mean)) +
+  geom_point() +
+  geom_errorbar(
+    aes(ymin = Mean - sd, 
+        ymax = Mean + sd),
+    width = 10
+  ) +
+  labs(x = 'Time Difference (days)', y = 'Log-transformed RNA') +
+  theme_bw() +
+  geom_hline(yintercept = log10(400)) 
+
+IQR.rna
+
+ggplot(rec.rna, aes(x = time_diff)) +
+  geom_histogram(binwidth = 7) +
+  theme_bw() +
+  labs(x = "Time Difference", y = "Frequency")
+
+distance <- grid.arrange(IQR.cd4, IQR.rna, ncol = 2)
+
+se <- grid.arrange(se.cd4, se.rna, ncol = 2)
+
+ggsave(plot = distance, file = "results/slopes/IQR.png")
 
 #### assumptions ----
 ggplot(rec.cd4, aes(x= sqrt(cd4))) +
@@ -39,7 +144,7 @@ ggplot(rec.cd4, aes(x= sqrt(cd4))) +
   theme_bw()
 
 ggplot(rec.rna, aes(x=log10(rna+1))) +
-  geom_histogram() +
+  geom_histogram(binwidth = 0.5) +
   theme_bw()
 
 # Q-Q plot for cd4
@@ -82,102 +187,141 @@ print(rna_yearRAW)
 ## CD4 
 model.cd4_spline <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = rec.cd4, method = "REML")
 
+plot.gam(model.cd4_spline)
+
 summary(model.cd4_spline)
 
 residuals.cd4 = resid(model.cd4_spline)
 hist(residuals.cd4, main = "Histogram of Residuals", xlab = "Residuals")
 
+ggplot(rec.rna, aes(x = time_diff, y = residuals.rna)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point() +
+  theme_bw() +
+  labs(x = "Time Difference", y = "Residuals")
+
 ## RNA 
 
 model.rna_spline <- gam(log10(rna+1) ~ s(time_diff) + s(id, bs="re"), data = rec.rna, method = "REML")
+model.rna_spline2 <- gam(trans.rna ~ s(time_diff) + s(id, bs="re"), data = rec.rna, method = "REML")
 
-summary(model.rna_spline)
+summary(model.rna_spline2)
+
+plot.gam(model.rna_spline2, 
+         seWithMean = TRUE,
+         unconditional=TRUE)
+
+ggplot(rec.rna, aes(x = time_diff)) +
+  geom_histogram(binwidth = 14) +
+  theme_bw() +
+  labs(x = "Time Difference", y = "Frequency")
 
 residuals.rna = resid(model.rna_spline)
 hist(residuals.rna, main = "Histogram of Residuals", xlab = "Residuals")
 
-### Plotting ----
+rec.rna$residuals_rna <- resid(model.rna_spline)
+
+ggplot(rec.rna, aes(x = time_diff, y = residuals_rna)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point() +
+  theme_bw() +
+  labs(x = "Time Difference", y = "Residuals")
+
+#########################
+#### Plotting ----
+
+### Fit only
 
 #CD4
 
-model.cd4_spline <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = rec.cd4, method = "REML")
+m.cd4 <- gam(sqrt(cd4) ~ s(time_diff, k = 5) + s(id, bs="re"), data = rec.cd4, method = "REML")
 
-newdata.cd4 <- data.frame(
-  time_diff = seq(min(rec.cd4$time_diff), max(rec.cd4$time_diff), length.out=1000),
-  id = rep(1, 1000))
-
-preds.cd4 <- predict(model.cd4_spline, newdata=newdata.cd4, se=TRUE)
-newdata.cd4$fit <- preds.cd4$fit
-newdata.cd4$lowerCI <- preds.cd4$fit - 1.96 * preds.cd4$se.fit
-newdata.cd4$upperCI <- preds.cd4$fit + 1.96 * preds.cd4$se.fit
-
-trend.cd4 <- ggplot(rec.cd4, aes(x = time_diff)) +
-  geom_line(aes(group = factor(id), y = sqrt(cd4)), color = "grey", alpha = .1) +
-  geom_line(data=newdata.cd4, aes(x = time_diff, y=fit), color="red") +
-  geom_ribbon(data=newdata.cd4, aes(x = time_diff, ymin=lowerCI, ymax=upperCI), alpha=0.2, fill="red")+
+trend.cd4 <- plot_trend(m.cd4, rec.cd4) +
   geom_hline(yintercept = sqrt(350)) +
   geom_vline(xintercept = 0, linetype = "dashed")+
-  theme_bw() +
-  labs(x = "", title = "raw data + GAM") +
-  scale_x_continuous(expand = c(0,0)) +
-  coord_cartesian(xlim = c(-30, 360), ylim = c(0, 50)) +
-  scale_y_continuous(expand = c(0,0))+
-  theme(plot.title = element_text(hjust = 0.5))
+  labs(x = "", y = "sqrt(CD4 count)") +
+  coord_cartesian(xlim = c(-30, 360), ylim = c(0, 30))
 
-trend.cd42 <- ggplot(newdata.cd4, aes(x = time_diff)) +
-  geom_line(aes(y=fit), color="red") +
-  geom_ribbon(aes(x = time_diff, ymin=lowerCI, ymax=upperCI), alpha=0.2, fill="red")+
-  geom_hline(yintercept = sqrt(350)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  theme_bw() +
-  labs(x = "", title = "GAM", y = "") +
-  scale_x_continuous(expand = c(0,0)) +
-  coord_cartesian(xlim = c(-30, 360), ylim = c(15, 25)) +
-  scale_y_continuous(expand = c(0,0))+
-  theme(plot.title = element_text(hjust = 0.5))
+trend.cd4
 
-print(trend.cd42)
+#HIV-RNA
 
-## RNA
+m.rna <- gam(log10(rna+1) ~ s(time_diff, k = 10) + s(id, bs="re"), data = rec.rna, method = "REML")
+m.rna2 <- gam(trans.rna ~ s(time_diff, k = 7) + s(id, bs="re"), data = rec.rna, method = "REML")
 
-plot(model.rna_spline, se=TRUE)
-
-newdata.rna <- data.frame(
-  time_diff = seq(min(rec.rna$time_diff), max(rec.rna$time_diff), length.out=1000),
-  id = rep(1, 1000))
-
-preds.rna <- predict(model.rna_spline, newdata=newdata.rna, se=TRUE)
-newdata.rna$fit <- preds.rna$fit
-newdata.rna$lowerCI <- preds.rna$fit - 1.96 * preds.rna$se.fit
-newdata.rna$upperCI <- preds.rna$fit + 1.96 * preds.rna$se.fit
-
-trend.rna <- ggplot(rec.rna, aes(x = time_diff)) +
-  geom_line(aes(group = factor(id), y = log10(rna)), color = "grey", alpha = .1) +
-  geom_line(data=newdata.rna, aes(x = time_diff, y=fit), color="red") +
-  geom_ribbon(data=newdata.rna, aes(x = time_diff, ymin=lowerCI, ymax=upperCI), alpha=0.2, fill="red") +
-  geom_hline(yintercept = log10(400)) +
-  geom_vline(xintercept = 0, linetype = "dashed") +
-  theme_bw() +
-  labs(x = "", title = "") +
-  scale_x_continuous(expand = c(0,0)) +
-  coord_cartesian(xlim = c(-30, 360), ylim = c(0, 10)) +
-  scale_y_continuous(expand = c(0,0)) +
-  theme(plot.title = element_text(hjust = 0.5))
-
-trend.rna2 <- ggplot(newdata.rna, aes(x = time_diff)) +
-  geom_line(aes(y=fit), color="red") +
-  geom_ribbon(aes(x = time_diff, ymin=lowerCI, ymax=upperCI), alpha=0.2, fill="red")+
+trend.rna <- plot_trend(m.rna, rec.cd4)+
   geom_hline(yintercept = log10(400)) +
   geom_vline(xintercept = 0, linetype = "dashed")+
-  theme_bw() +
-  labs(x = "", title = "", y = "") +
-  scale_x_continuous(expand = c(0,0)) +
-  coord_cartesian(xlim = c(-30, 360), ylim = c(0, 6)) +
-  scale_y_continuous(expand = c(0,0))+
-  theme(plot.title = element_text(hjust = 0.5))
+  labs(x = "", y = "log10(viral-load)") +
+  coord_cartesian(xlim = c(-30, 360), ylim = c(0, 7.5)) 
 
-print(trend.rna2)
+trend.rna2 <- plot_trend(m.rna2, rec.cd4)+
+  geom_hline(yintercept = log10(400)) +
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(x = "", y = "log10(viral-load)") +
+  coord_cartesian(xlim = c(-30, 360), ylim = c(0, 7.5)) 
 
-trends <- grid.arrange(trend.cd4, trend.cd42, trend.rna, trend.rna2, ncol = 2)
+trend.rna2
+trends <- grid.arrange(trend.cd4, trend.rna2, ncol = 2)
 
-ggsave(plot = trends, filename = "results/slopes.png")
+ggsave(plot = trends, filename = "results/slopes/trends.jpeg")
+
+### raw + fitted
+
+trend.cd4.raw <- plot_trend.rawcd4(m.cd4, rec.cd4) 
+
+trend.rna.raw <- plot_trend.raw.rna(m.rna2, rec.rna)
+
+trends.raw <- grid.arrange(trend.cd4.raw, trend.rna.raw, ncol = 2)
+
+ggsave(plot = trends.raw, filename = "results/slopes/trends.raw.png")
+
+### all 
+
+trends_complete <- grid.arrange(trend.cd4.raw, trend.cd4, trend.rna.raw, trend.rna2, ncol =2)
+ggsave(plot = trends_complete, filename = "results/slopes/trends.both.png")
+
+
+
+#### Prediction interval #### 
+
+m.cd4 <- gam(sqrt(cd4) ~ s(time_diff, k = 5) + s(id, bs="re"), data = rec.cd4, method = "REML")
+
+# Replace these lines with your own data
+# Example:
+x <- rec.cd4$time_diff
+y <- sqrt(rec.cd4$cd4)
+
+beta <- coef(m.cd4)
+Vb <- vcov(m.cd4)
+
+## simulate replicate beta vectors from posterior...
+Cv <- chol(Vb)
+n.rep=100
+nb <- length(beta)
+br <- t(Cv) %*% matrix(rnorm(n.rep*nb),nb,n.rep) + beta
+
+## turn these into replicate linear predictors...
+xp <- seq(from = -30, to = 360, length.out = 1000)
+Xp <- predict(m.cd4,newdata=data.frame(time_diff=xp, id = 1),type="lpmatrix")
+fv <- Xp%*%br ## ... finally, replicate expected value vectors
+
+## and estimated scale...
+
+plot(rep(xp,n.rep),fv,pch=".", ylim = c(0,40)) ## plotting replicates
+points(x,y,pch=19,cex=.5) ## and original data
+
+## compute 95% prediction interval...
+PI <- apply(fv,1,quantile,prob=c(.025,0.975))
+## and plot it...
+lines(xp,PI[1,],col=2,lwd=2);lines(xp,PI[2,],col=2,lwd=2)
+
+## Confidence interval for comparison...
+pred <- predict(m.cd4,newdata=data.frame(time_diff=xp, id = 1),se=TRUE)
+lines(xp,pred$fit,col=3,lwd=2)
+u.ci <- pred$fit + 2*pred$se.fit
+l.ci <- pred$fit - 2*pred$se.fit
+lines(xp,u.ci,col=3,lwd=2);lines(xp,l.ci,col=3,lwd=2)
+
+
+
