@@ -56,7 +56,7 @@ not.presenting <- art %>%
   filter(presenting_TB == 0)
 
 incident <- art %>% 
-  filter(case_incident_2m == "Incident TB")
+  filter(case_incident_2m == 1)
 ```
 
 ## Exploration of the study population (Table 1)
@@ -79,7 +79,7 @@ age_at_ART_start_tb <- age_quantiles(presenting)
 gender_prop_tb <- tabyl(presenting, sex)
 typetb_tb <- tabyl(presenting, type_tb_shcs)
 source_hiv_tb <- tabyl(presenting, risk2)
-cd4_base_tb <- baseline(presenting)
+cd4_base_tb <- cd4_baseline(presenting)
 rna_base_tb <- rna_baseline(presenting)
 who_stages_tb <- tabyl(presenting, who_stage)
 art_regimens_tb <- regimens(presenting)
@@ -986,5 +986,17 @@ incidence_nonsup
 incidenceviral <- grid.arrange(incidence_sup, incidence_nonsup, ncol=2)
 
 ggsave(plot = incidenceviral, filename = "../results/plots_lab/incidenceviral.png", width = width_descr*1.5, height = height_descr)
+
+```
+
+```{r}
+presenting
+
+PCA_incident <- incident %>% 
+  dplyr::select(id: tb_regimen) %>% 
+  filter(!is.na(tb_diag_rna))
+
+
+
 
 ```

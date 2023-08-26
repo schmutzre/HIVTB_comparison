@@ -18,8 +18,7 @@ pacman:: p_load(
 #### Data ----
 custom_breaks <- c(16, 24, 34, 44, 100)
        
-cox_ch <- readRDS("data_clean/supress_df.rds") %>% 
-         filter(persontime_years.suppression >= 0)  #when last follow up date was before art start
+cox_ch <- readRDS("data_clean/supress_df.rds") #when last follow up date was before art start
        
 cox_test <- cox_ch %>% 
          mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA"))) 
@@ -56,7 +55,8 @@ plot <- plot_model(model.cox,
                           value.offset = .3,
                           group.terms = c(1, 2, 2, 2, 3, 4, 4, 4, 5, 5, 5)) +
          theme_bw()+
-         labs(title = "Hazard Ratios for Factors Associated with viral suppression") + 
+         labs(title = "Hazard Ratios for Factors Associated with viral suppression",
+              y = "Hazard ratios") + 
          theme(plot.title = element_text(hjust = 0.5))
        
 plot

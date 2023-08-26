@@ -1,3 +1,6 @@
+library(tidyr)
+library(tidyverse)
+
 rmvn <- function(n, mu, sig) { ## MVN random deviates
   L <- chol(sig)
   m <- ncol(L)
@@ -45,7 +48,7 @@ plot_trend <- function(model, data, N = 10000) {
     geom_ribbon(aes(ymin = lwrS, ymax = uprS), alpha = 0.2, fill = "red") +
     geom_ribbon(aes(ymin = lwrP, ymax = uprP), alpha = 0.2, fill = "blue") +
     geom_line(aes(y = fit), color = "red") +
-    theme_bw()+
+    theme_classic()+
     scale_x_continuous(expand = c(0,0))+
     scale_y_continuous(expand = c(0,0))+
     theme(panel.grid.major = element_blank(), 
@@ -93,16 +96,16 @@ plot_trend.raw.rna <- function(model, data, N = 10000) {
   
   # Plot the trend with ggplot2
   trend.plot <- ggplot(pred, aes(x = time_diff)) +
-    geom_line(data = data, aes(group = factor(id), y = log10(rna+1)), color = "grey", alpha = .1) +
+    geom_line(data = data, aes(group = factor(id), y = trans.rna), color = "grey", alpha = .2) +
     geom_ribbon(aes(ymin = lwrS_adj, ymax = uprS), alpha = 0.2, fill = "red") +
     geom_ribbon(aes(ymin = lwrP, ymax = uprP), alpha = 0.2, fill = "blue") +
     geom_line(aes(y = fit), color = "red") +
-    theme_bw()+
+    theme_classic()+
     scale_x_continuous(expand = c(0,0))+
     scale_y_continuous(expand = c(0,0)) +
     geom_hline(yintercept = log10(400)) +
-    geom_vline(xintercept = 0, linetype = "dashed")+
-    labs(x = "", y = "log10(viral-load)") +
+    geom_vline(xintercept = 0, linetype = "dotted")+
+    labs(x = "Days since ART start", y = "log10(viral-load)") +
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank())
   
@@ -149,22 +152,137 @@ plot_trend.rawcd4 <- function(model, data, N = 10000) {
   # Plot the trend with ggplot2
 plot_name <- deparse(substitute(model))
   trend.plot <- ggplot(pred, aes(x = time_diff)) +
-    geom_line(data = data, aes(group = factor(id), y = sqrt(cd4)), color = "grey", alpha = .1) +
+    geom_line(data = data, aes(group = factor(id), y = sqrt(cd4)), color = "grey", alpha = .2) +
     geom_ribbon(aes(ymin = lwrS, ymax = uprS), alpha = 0.2, fill = "red") +
     geom_ribbon(aes(ymin = lwrP, ymax = uprP), alpha = 0.2, fill = "blue") +
     geom_line(aes(y = fit), color = "red") +
-    theme_bw()+
+    theme_classic()+
     scale_x_continuous(expand = c(0,0))+
     scale_y_continuous(expand = c(0,0)) +
     geom_hline(yintercept = sqrt(350)) +
-    geom_vline(xintercept = 0, linetype = "dashed")+
-    labs(x = "", y = "sqrt(CD4 count)") +
+    geom_vline(xintercept = 0, linetype = "dotted")+
+    labs(x = "Days since ART start", y = expression(sqrt(CD4))) +
     theme(panel.grid.major = element_blank(), 
           panel.grid.minor = element_blank())
   
   return(trend.plot)
 }
 
+plot_pred.cd4 <- function(model, rec_data) {
+  beta <- coef(model)
+  V <- vcov(model)
+  
+  # simulate parameters
+  n_sim <- 10000
+  Cv <- chol(V)
+  set.seed(1)
+  nus <- rnorm(n_sim * length(beta))
+  beta_sims <- beta + t(Cv) %*% matrix(nus, nrow = length(beta), ncol = n_sim)
+  
+  # make linear predictions
+  X <- expand.grid(time_diff = seq(min(rec_data$time_diff), max(rec_data$time_diff), 10), id = 1)
+  covar_sim <- predict(model, newdata = X, type = "lpmatrix", exclude = "s(id)") # exclude random effects
+  linpred_sim <- covar_sim %*% beta_sims
+  
+  # simulate predictions (sample from normal distribution)
+  pred <- matrix(rnorm(n = prod(dim(linpred_sim)), mean = linpred_sim, sd = sqrt(summary(model)$scale)), 
+                 nrow = nrow(linpred_sim), ncol = ncol(linpred_sim))
+  
+  # create data frame
+  pred_df <- t(pred) %>%
+    data.frame() %>%
+    set_names(sort(X$time_diff)) %>%
+    gather() %>%
+    rename(time_diff = key, 
+           trans_pred = value) %>%
+    mutate(time_diff = as.numeric(gsub("X", "", time_diff))) %>%
+    group_by(time_diff) %>%
+    mutate(draw = 1:n()) %>%
+    ungroup()
+  
+  # summarize
+  pred_df_sum <- pred_df %>%
+    group_by(time_diff) %>%
+    summarize(mean_pred = mean(trans_pred),
+              lower_pred = quantile(trans_pred, .025),
+              upper_pred = quantile(trans_pred, .975)) %>%
+    ungroup() 
+  
+  # plot
+  p <- ggplot(mapping = aes(time_diff)) +
+    geom_line(data = rec_data, mapping = aes(y = trans.cd4, group = factor(id)), color = "grey", alpha = .2) +
+    geom_line(data = pred_df_sum, mapping = aes(y = mean_pred), color = "blue") + 
+    geom_line(data = pred_df_sum, mapping = aes(y = lower_pred), color = "blue", linetype = "dashed") +
+    geom_line(data = pred_df_sum, mapping = aes(y = upper_pred), color = "blue", linetype = "dashed") +
+    geom_vline(mapping = aes(xintercept = 0), linetype = "dotted") +
+    scale_x_continuous(expand = c(0,0)) +
+    scale_y_continuous(expand = c(0,0)) +
+    theme_classic() +
+    labs(x = "Days since ART", y = expression(sqrt(CD4))) +
+    geom_hline(mapping = aes(yintercept = sqrt(350)), color = "black")  
+  
+  return(p)
+}
+
+# To use the function:
+# p <- plot_pred.int(m.cd4, rec.cd4)
+# print(p)
+
+plot_pred.rna <- function(model, rec_data) {
+  beta <- coef(model)
+  V <- vcov(model)
+  
+  # simulate parameters
+  n_sim <- 10000
+  Cv <- chol(V)
+  set.seed(1)
+  nus <- rnorm(n_sim * length(beta))
+  beta_sims <- beta + t(Cv) %*% matrix(nus, nrow = length(beta), ncol = n_sim)
+  
+  # make linear predictions
+  X <- expand.grid(time_diff = seq(min(rec_data$time_diff), max(rec_data$time_diff), 10), id = 1)
+  covar_sim <- predict(model, newdata = X, type = "lpmatrix", exclude = "s(id)") # exclude random effects
+  linpred_sim <- covar_sim %*% beta_sims
+  
+  # simulate predictions (sample from normal distribution)
+  pred <- matrix(rnorm(n = prod(dim(linpred_sim)), mean = linpred_sim, sd = sqrt(summary(model)$scale)), 
+                 nrow = nrow(linpred_sim), ncol = ncol(linpred_sim))
+  
+  # create data frame
+  pred_df <- t(pred) %>%
+    data.frame() %>%
+    set_names(sort(X$time_diff)) %>%
+    gather() %>%
+    rename(time_diff = key, 
+           trans_pred = value) %>%
+    mutate(time_diff = as.numeric(gsub("X", "", time_diff))) %>%
+    group_by(time_diff) %>%
+    mutate(draw = 1:n()) %>%
+    ungroup()
+  
+  # summarize
+  pred_df_sum <- pred_df %>%
+    group_by(time_diff) %>%
+    summarize(mean_pred = mean(trans_pred),
+              lower_pred = max(0,quantile(trans_pred, .025)),
+              upper_pred = quantile(trans_pred, .975)) %>%
+    ungroup() 
+  
+  # plot
+  p <- ggplot(mapping = aes(time_diff)) +
+    geom_line(data = rec_data, mapping = aes(y = trans.rna, group = factor(id)), color = "grey", alpha = .2) +
+    geom_line(data = pred_df_sum, mapping = aes(y = mean_pred), color = "blue") + 
+    geom_line(data = pred_df_sum, mapping = aes(y = lower_pred), color = "blue", linetype = "dashed") +
+    geom_line(data = pred_df_sum, mapping = aes(y = upper_pred), color = "blue", linetype = "dashed") +
+    geom_vline(mapping = aes(xintercept = 0), linetype = "dotted") +
+    scale_x_continuous(expand = c(0,0)) +
+    scale_y_continuous(expand = c(0,0)) +
+    theme_classic() +
+    labs(x = "Days since ART", y = "log10(viral-load)") +
+    geom_hline(mapping = aes(yintercept = log10(400)), color = "black")  
+  
+  return(p)
+}
 
 
 

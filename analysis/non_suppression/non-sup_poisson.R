@@ -14,7 +14,7 @@ pacman:: p_load(
 
 ##### data import/ prep ----
 ch <- readRDS("data_clean/NOsupress_df.rds") %>% 
-  filter(persontime_years.NOsuppression > 0)
+  filter(persontime_years.NOsuppression >= 0)
 
 #sa <- readRDS("data_clean/art_sa")
 

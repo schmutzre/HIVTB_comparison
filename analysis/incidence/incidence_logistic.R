@@ -11,7 +11,8 @@ pacman:: p_load( # for data wrangling
   caret, #confusionmatrix
   car,
   dplyr,
-  reshape2
+  reshape2,
+  lme4
 )
 
 
@@ -28,6 +29,17 @@ ch <- readRDS("data_clean/art_ch.rds") %>%
          born = as.factor(region_born)) %>% 
   dplyr::select(id, incidence, sex, cohort, born, agegroup, baselineCD4, baselineRNA)
 
+ch.2 <-  readRDS("data_clean/art_ch.long.rds") %>% 
+  mutate(agegroup = cut(age_at_ART_start, breaks = custom_breaks, include.lowest = TRUE),
+         agegroup = as.factor(agegroup),
+         incidence = as.factor(case_incident_2m),
+         baselineCD4 = as.factor(cd4_group),
+         baselineRNA = as.factor(rna_group),
+         born = as.factor(region_born)) %>% 
+  dplyr::select(id, incidence, sex, cohort, born, agegroup, baselineCD4, baselineRNA, rna, cd4) %>% 
+  filter(!is.na(cd4),
+         !is.na(rna))
+
 
 levels(logistic$agegroup)
 
@@ -35,6 +47,9 @@ sa <- #...
   
 logistic <- ch %>% 
   mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA"))) #... #join them together 
+
+logistic2 <- ch.2
+
 
 #### model ----
 
@@ -44,11 +59,16 @@ model.log <- glm(incidence ~ cohort + sex + agegroup + baselineRNA + baselineCD4
                       data = logistic, 
                       family = "binomial")
 
+model.log2 <- glmer(incidence ~ sex + agegroup + baselineRNA + baselineCD4 + sqrt(cd4) + log10(rna+1) + (1|id), data = logistic2, family = binomial)
+
+
 #### Results ----
 
 # Print model summary
 summary(model.log)
+summary(model.log2)
 
+coef(model.log2)
 # Odds Ratios
 # Interpretation:
 # OR = 1: No association between exposure and outcome.
@@ -56,6 +76,7 @@ summary(model.log)
 # OR < 1: The exposure is associated with lower odds of outcome.
 # Odds Ratios
 or <- exp(coef(model.log))
+or2 <- exp(coef(model.log2))
 
 # Confidence Intervals
 ci <- exp(confint(model.log))
@@ -86,7 +107,7 @@ plot <- plot_model(model.log,
                 value.offset = .3,
                 group.terms = c(1, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5)) +
   theme_bw()+
-  labs(title = "Incidence of TB") + 
+  labs(title = "Risk factors for TB") + 
   theme(plot.title = element_text(hjust = 0.5))
 plot
 

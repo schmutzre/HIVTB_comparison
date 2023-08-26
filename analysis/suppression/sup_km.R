@@ -93,7 +93,7 @@ kaplan_plotCH <- ggsurvplot(
 # Create a zoomed in plot
 zoom_plotCH <- kaplan_plotCH$plot + 
   coord_cartesian(ylim = c(0, 1)) +
-  labs(y = "Survival without viral suppression") +
+  labs(y = "Probability of being viral suppression free") +
   theme_bw() +
   scale_x_continuous(expand = c(0,0))+
   scale_y_continuous(expand = c(0,0))
@@ -121,7 +121,7 @@ plotCIF(fit, event = 1,
         col = cols, 
         lty = lty,
         xlab = "Years",
-        ylab = "Survival without viral non-suppression",
+        ylab = "Probability of being viral suppression free",
         yaxt = "n",
         main = "Aalen Johansen estimator")
 
@@ -154,9 +154,9 @@ plotCIF(fit.ch,
         ylim = c(1, 0), 
         xlim = c(0, 12),
         xlab = "Years",
-        ylab = "Survival without viral suppression",
+        ylab = "Probability of being viral suppression free",
         yaxt = "n",
-        main = "Aalen Johansen estimator vs. Kaplan Meier estimator")
+        main = "")
 
 # Add a new y-axis with transformed labels
 axis(2, at = seq(0, 1, by = 0.1), 

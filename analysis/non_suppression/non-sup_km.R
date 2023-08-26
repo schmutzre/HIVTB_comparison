@@ -40,7 +40,7 @@ kaplan_plot <- ggsurvplot(
   data = kaplan, 
   pval = TRUE, 
   xlab = "Time after starting ART in years",
-  ylab = "Survival without viral non-suppression",
+  ylab = "Probability of being viral suppression free",
   risk.table = TRUE,
   conf.int = TRUE,
   palette = c("#FFA07A", "#B0C4DE"),
@@ -121,7 +121,7 @@ plotCIF(fit, event = 1,
         col = cols, 
         lty = lty,
         xlab = "Years",
-        ylab = "survival without viral non-suppression",
+        ylab = "Probability of being viral non-suppression free",
         yaxt = "n",
         main = "Aalen Johansen estimator")
 
@@ -154,9 +154,9 @@ plotCIF(fit.ch,
         ylim = c(0.05, 0), 
         xlim = c(0, 12),
         xlab = "Years",
-        ylab = "survival without viral non-suppression",
+        ylab = "Probability of being viral non-suppression free",
         yaxt = "n",
-        main = "Aalen Johansen estimator vs. Kaplan Meier estimator")
+        main = "")
 
 # Add a new y-axis with transformed labels
 axis(2, at = seq(0, 0.05, by = 0.01), 

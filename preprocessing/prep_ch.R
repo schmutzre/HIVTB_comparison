@@ -119,7 +119,54 @@ filteredBOTH <- filteredBOTH %>%
 library(flextable)
 
 p1 <- tabyl(filteredBOTH, ethnicity) %>% flextable()
-p2 <- tabyl(filteredBOTH, region_born) %>% flextable()
+
+p1 <- filteredBOTH %>% 
+  group_by(ethnicity) %>% 
+  mutate(ethnicity = case_when(ethnicity == "Unknown" ~ NA_character_,
+                               TRUE ~ ethnicity)) %>% 
+  summarise(n = n(),
+            percent = round(n/nrow(filteredBOTH) * 100, 0)) %>% 
+  arrange(desc(n)) %>%
+  mutate(ethnicity = factor(ethnicity, levels = unique(ethnicity)))
+
+p1 <- ggplot(p1, aes(x = ethnicity, y = percent)) +
+  geom_segment(aes(x = ethnicity, xend = ethnicity, y = 0, yend = percent), color = "grey") +
+  geom_point(size = 3, color = "#69b3a2") +
+  coord_flip(ylim = c(0, max(p1$percent) + 15)) +
+  theme(
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = "none"
+  ) +
+  geom_text(aes(label = paste("n =", n)), hjust = -0.5, vjust = 0.5) +
+  xlab("") +
+  ylab("")+
+  theme_bw() 
+
+p2 <- filteredBOTH %>% 
+  group_by(region_born) %>% 
+  summarise(n = n(),
+            percent = round(n/nrow(filteredBOTH) * 100, 0)) %>% 
+  arrange(desc(n)) %>%
+  mutate(ethnicity = factor(region_born, levels = unique(region_born)))
+
+p2 <- ggplot(p2, aes(x = region_born, y = percent)) +
+  geom_segment(aes(x = region_born, xend = region_born, y = 0, yend = percent), color = "grey") +
+  geom_point(size = 3, color = "#69b3a2") +
+  coord_flip(ylim = c(0, max(p2$percent) + 16)) +
+  theme(
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = "none"
+  ) +
+  geom_text(aes(label = paste("n =", n)), hjust = -0.5, vjust = 0.5) +
+  xlab("") +
+  ylab ("%")+
+  theme_bw()
+
+plotp1p2 <- grid.arrange(p1, p2, ncol = 1)
+
+ggsave(plot = plotp1p2, filename = "results/descriptive/origin.png", width = width_descr*2.5, height = height_descr*3)
 
 ## add cd4 and viral load baseline
   

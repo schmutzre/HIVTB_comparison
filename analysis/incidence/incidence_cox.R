@@ -28,7 +28,6 @@ cox_ch <- readRDS("data_clean/art_ch.rds") %>%
     case_incident_2m == 0 ~ last_persontime/360
   )
   )  %>% 
-  filter(persontime_years > 0) %>% 
   mutate(agegroup = cut(age_at_ART_start, breaks = custom_breaks, include.lowest = TRUE),
            agegroup = as.factor(agegroup),
            baselineCD4 = as.factor(cd4_group),
@@ -72,14 +71,15 @@ plot_model(model.cox)
 hr <- exp(coef(model.cox))
 ci <- exp(confint(model.cox))
 
-#plot odds ratio
+#plot hazard ratio
 plot <- plot_model(model.cox, 
                    vline.color = "red",
                    show.values = TRUE, 
                    value.offset = .3,
                    group.terms = c(1, 2, 2, 2, 3, 4, 4, 4, 5, 5, 5)) +
   theme_bw()+
-  labs(title = "Hazard Ratios for Factors Associated with TB Incidence") + 
+  labs(title = "Hazard Ratios for Factors Associated with TB Incidence",
+       y = "Hazard ratios") + 
   theme(plot.title = element_text(hjust = 0.5))
 
 plot
@@ -94,6 +94,66 @@ cox.fit <- cox.zph(model.cox)
 print(cox.fit)
 plot(cox.fit)
 
-#### Competing risk ----
-# Compute cumulative incidence for TB considering death as a competing risk
+#### Competing risk model (Fine-Gray) ----
+# Create factor with three levels
+
+gray <- cox %>% 
+  filter(persontime_years > 0)
+
+# Define factors for model spec
+factors <- c("cohort", "sex", "agegroup", "baselineRNA", "baselineCD4")
+gray$sex <- relevel(gray$sex, ref = "Male")
+
+model_spec <- reformulate(
+  paste0("cohort+", paste(factors, collapse = "+"))
+) # ~age + sex + income
+
+covariates_matrix <- model.matrix(
+  model_spec,
+  data = gray,
+  contrasts.arg = lapply(gray[factors], contrasts)
+)[, -1] # first column is constant intercept (1)
+
+head(covariates_matrix, 3)
+
+model.finegray <- crr(ftime = gray$persontime_years, 
+                      fstatus = gray$event_type, 
+                      cov1 = covariates_matrix,
+                      failcode = 1,
+                      cencode = 0)
+
+summary(model.finegray)
+
+# Extract coefficients and confidence intervals for subdistribution hazards
+coef <- model.finegray$coef
+se <- sqrt(diag(model.finegray$var))
+HR <- exp(coef)
+lower_CI <- exp(coef - 1.96 * se)
+upper_CI <- exp(coef + 1.96 * se)
+
+results <- data.frame(HazardRatio = HR, LowerCI = lower_CI, UpperCI = upper_CI)
+results$cov <- rownames(results)
+rownames(results) <- NULL
+
+results <- results %>%
+  mutate(cov = c("South Africa (cohort)", "Female (sex)", "24-34 (age)", "34-44 (age)", "44 + (age)", "1,000 - 9,999 (Baseline VL)", "10,000+ (Baseline VL)", "NA (Baseline VL)", "100 - 349 (Baseline CD4)", "350+ (Baseline CD4)", "NA (Baseline CD4)"))
+
+results$cov <- factor(results$cov, levels = rev(c("South Africa (cohort)", "Female (sex)", "24-34 (age)", "34-44 (age)", "44 + (age)", "1,000 - 9,999 (Baseline VL)", "10,000+ (Baseline VL)", "NA (Baseline VL)", "100 - 349 (Baseline CD4)", "350+ (Baseline CD4)", "NA (Baseline CD4)")))
+
+plot.gray <- results %>% 
+  ggplot(aes(x = HazardRatio, y = cov, color = HazardRatio > 1)) +
+  geom_vline(xintercept = 1, color = "gray75") +
+  geom_linerange(aes(xmin = lower_CI, xmax = upper_CI), size = 1, alpha = 0.5) +
+  geom_point(size = 2) +
+  geom_text(aes(label = sprintf("%.2f", HazardRatio)), vjust = -0.9, size = 3) +
+  theme_bw() +
+  scale_color_manual(values = c("green4", "red3"), guide = "none") +
+  labs(title = "Estimated HR using a fine-gray model", y = NULL,
+       x = "Hazard ratio estimate (95% CI)") +
+  theme(axis.text.y = element_text(hjust = 0, size = 10),
+        plot.title = element_text(hjust = 0.5))  # This line centers the title
+
+plot.gray
+
+ggsave(plot = plot.gray, filename = "results/incidence/hazard-gray.png")
 

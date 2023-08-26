@@ -36,6 +36,8 @@ rec.cd4 <- rec %>%
     trans.cd4 = sqrt(cd4)
 )
 
+#### data exploration ####
+
 summary_stats.cd4 <- rec.cd4 %>% 
   group_by(group_30days) %>% 
   summarise(
@@ -88,8 +90,14 @@ rec.rna <- rec.rna %>%
     group_30days = as.integer((time_diff %/% 30) + 1)
   )
 
+num_unique_ids <- rec.rna %>% 
+  summarise(n_distinct(id))
+
+num_unique_ids2 <- rec.cd4 %>% 
+  summarise(n_distinct(id))
+
 # Calculate Q1 and Q3 for each group
-summary_stats <- rec.rna %>% 
+summary_stats.rna <- rec.rna %>% 
   group_by(group_30days) %>% 
   summarise(
     median_trans.rna = median(trans.rna, na.rm = TRUE),
@@ -104,7 +112,7 @@ summary_stats <- rec.rna %>%
   )
 
 # Plot the data with IQR error bars
-IQR.rna <- ggplot(summary_stats, aes(x = time_diff_midpoint, y = median_trans.rna)) +
+IQR.rna <- ggplot(summary_stats.rna, aes(x = time_diff_midpoint, y = median_trans.rna)) +
   geom_point() +
   geom_errorbar(
     aes(ymin = Q1, ymax = Q3),
@@ -114,7 +122,7 @@ IQR.rna <- ggplot(summary_stats, aes(x = time_diff_midpoint, y = median_trans.rn
   theme_bw() +
   geom_hline(yintercept = log10(400)) 
 
-se.rna <- ggplot(summary_stats, aes(x = time_diff_midpoint, y = Mean)) +
+se.rna <- ggplot(summary_stats.rna, aes(x = time_diff_midpoint, y = Mean)) +
   geom_point() +
   geom_errorbar(
     aes(ymin = Mean - sd, 
@@ -138,7 +146,7 @@ se <- grid.arrange(se.cd4, se.rna, ncol = 2)
 
 ggsave(plot = distance, file = "results/slopes/IQR.png")
 
-#### assumptions ----
+#### assumptions ####
 ggplot(rec.cd4, aes(x= sqrt(cd4))) +
   geom_histogram() +
   theme_bw()
@@ -153,7 +161,7 @@ ggplot(rec, aes(sample = sqrt(cd4))) +
   stat_qq_line() +
   ggtitle("Q-Q plot for cd4")
 
-#### raw plot CD4 ----
+#### raw plot CD4 ####
 
 cd4_yearRAW <- rec.cd4 %>%
   ggplot(aes(x = time_diff)) +
@@ -168,7 +176,7 @@ cd4_yearRAW <- rec.cd4 %>%
 
 print(cd4_yearRAW)
 
-#### raw plot HIV-RNA ----
+#### raw plot HIV-RNA ####
 
 rna_yearRAW <- rec.rna %>%
   ggplot(aes(x = time_diff)) +
@@ -183,18 +191,18 @@ rna_yearRAW <- rec.rna %>%
 
 print(rna_yearRAW)
 
-#### spline model ----
+#### model ####
 ## CD4 
-model.cd4_spline <- gam(sqrt(cd4) ~ s(time_diff) + s(id, bs="re"), data = rec.cd4, method = "REML")
+m.cd4 <- gam(sqrt(cd4) ~ s(time_diff, k = 5) + s(id, bs="re"), data = rec.cd4, method = "REML")
 
-plot.gam(model.cd4_spline)
+plot.gam(m.cd4)
 
-summary(model.cd4_spline)
+summary(m.cd4)
 
-residuals.cd4 = resid(model.cd4_spline)
+residuals.cd4 = resid(m.cd4)
 hist(residuals.cd4, main = "Histogram of Residuals", xlab = "Residuals")
 
-ggplot(rec.rna, aes(x = time_diff, y = residuals.rna)) +
+ggplot(rec.cd4, aes(x = time_diff, y = residuals.cd4)) +
   geom_hline(yintercept = 0, linetype = "dashed") +
   geom_point() +
   theme_bw() +
@@ -202,12 +210,13 @@ ggplot(rec.rna, aes(x = time_diff, y = residuals.rna)) +
 
 ## RNA 
 
-model.rna_spline <- gam(log10(rna+1) ~ s(time_diff) + s(id, bs="re"), data = rec.rna, method = "REML")
-model.rna_spline2 <- gam(trans.rna ~ s(time_diff) + s(id, bs="re"), data = rec.rna, method = "REML")
+m.rna <- gam(trans.rna ~ s(time_diff, k = 7) + s(id, bs="re"), data = rec.rna, method = "REML")
 
-summary(model.rna_spline2)
+gam.check(m.rna)
 
-plot.gam(model.rna_spline2, 
+summary(m.rna)
+
+plot.gam(m.rna, 
          seWithMean = TRUE,
          unconditional=TRUE)
 
@@ -216,10 +225,10 @@ ggplot(rec.rna, aes(x = time_diff)) +
   theme_bw() +
   labs(x = "Time Difference", y = "Frequency")
 
-residuals.rna = resid(model.rna_spline)
+residuals.rna = resid(m.rna)
 hist(residuals.rna, main = "Histogram of Residuals", xlab = "Residuals")
 
-rec.rna$residuals_rna <- resid(model.rna_spline)
+rec.rna$residuals_rna <- resid(m.rna)
 
 ggplot(rec.rna, aes(x = time_diff, y = residuals_rna)) +
   geom_hline(yintercept = 0, linetype = "dashed") +
@@ -227,42 +236,33 @@ ggplot(rec.rna, aes(x = time_diff, y = residuals_rna)) +
   theme_bw() +
   labs(x = "Time Difference", y = "Residuals")
 
-#########################
 #### Plotting ----
+
+# I calculate the simultaneous CI instead of point-wise https://fromthebottomoftheheap.net/2016/12/15/simultaneous-interval-revisited/
 
 ### Fit only
 
 #CD4
 
-m.cd4 <- gam(sqrt(cd4) ~ s(time_diff, k = 5) + s(id, bs="re"), data = rec.cd4, method = "REML")
-
 trend.cd4 <- plot_trend(m.cd4, rec.cd4) +
   geom_hline(yintercept = sqrt(350)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(x = "", y = "sqrt(CD4 count)") +
+  geom_vline(xintercept = 0, linetype = "dotted")+
+  labs(x = "", y = expression(sqrt(CD4))) +
   coord_cartesian(xlim = c(-30, 360), ylim = c(0, 30))
 
 trend.cd4
 
 #HIV-RNA
 
-m.rna <- gam(log10(rna+1) ~ s(time_diff, k = 10) + s(id, bs="re"), data = rec.rna, method = "REML")
-m.rna2 <- gam(trans.rna ~ s(time_diff, k = 7) + s(id, bs="re"), data = rec.rna, method = "REML")
-
 trend.rna <- plot_trend(m.rna, rec.cd4)+
   geom_hline(yintercept = log10(400)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
+  geom_vline(xintercept = 0, linetype = "dotted")+
   labs(x = "", y = "log10(viral-load)") +
   coord_cartesian(xlim = c(-30, 360), ylim = c(0, 7.5)) 
 
-trend.rna2 <- plot_trend(m.rna2, rec.cd4)+
-  geom_hline(yintercept = log10(400)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  labs(x = "", y = "log10(viral-load)") +
-  coord_cartesian(xlim = c(-30, 360), ylim = c(0, 7.5)) 
+trend.rna
 
-trend.rna2
-trends <- grid.arrange(trend.cd4, trend.rna2, ncol = 2)
+trends <- grid.arrange(trend.cd4, trend.rna, ncol = 2)
 
 ggsave(plot = trends, filename = "results/slopes/trends.jpeg")
 
@@ -270,7 +270,7 @@ ggsave(plot = trends, filename = "results/slopes/trends.jpeg")
 
 trend.cd4.raw <- plot_trend.rawcd4(m.cd4, rec.cd4) 
 
-trend.rna.raw <- plot_trend.raw.rna(m.rna2, rec.rna)
+trend.rna.raw <- plot_trend.raw.rna(m.rna, rec.rna)
 
 trends.raw <- grid.arrange(trend.cd4.raw, trend.rna.raw, ncol = 2)
 
@@ -278,50 +278,25 @@ ggsave(plot = trends.raw, filename = "results/slopes/trends.raw.png")
 
 ### all 
 
-trends_complete <- grid.arrange(trend.cd4.raw, trend.cd4, trend.rna.raw, trend.rna2, ncol =2)
+trends_complete <- grid.arrange(trend.cd4.raw, trend.cd4, trend.rna.raw, trend.rna, ncol =2)
 ggsave(plot = trends_complete, filename = "results/slopes/trends.both.png")
 
-
+trends.raw
 
 #### Prediction interval #### 
+#https://mikl.dk/post/2019-prediction-intervals-for-gam/
 
-m.cd4 <- gam(sqrt(cd4) ~ s(time_diff, k = 5) + s(id, bs="re"), data = rec.cd4, method = "REML")
+## CD4
 
-# Replace these lines with your own data
-# Example:
-x <- rec.cd4$time_diff
-y <- sqrt(rec.cd4$cd4)
+prediction_cd4 <- plot_pred.cd4(m.cd4, rec.cd4)
 
-beta <- coef(m.cd4)
-Vb <- vcov(m.cd4)
+prediction_cd4
 
-## simulate replicate beta vectors from posterior...
-Cv <- chol(Vb)
-n.rep=100
-nb <- length(beta)
-br <- t(Cv) %*% matrix(rnorm(n.rep*nb),nb,n.rep) + beta
+prediction_rna <- plot_pred.rna(m.rna, rec.rna)
 
-## turn these into replicate linear predictors...
-xp <- seq(from = -30, to = 360, length.out = 1000)
-Xp <- predict(m.cd4,newdata=data.frame(time_diff=xp, id = 1),type="lpmatrix")
-fv <- Xp%*%br ## ... finally, replicate expected value vectors
+prediction_rna
 
-## and estimated scale...
+##
+conf.pred <- grid.arrange(trend.cd4.raw, prediction_cd4, trend.rna.raw, prediction_rna, ncol = 2)
 
-plot(rep(xp,n.rep),fv,pch=".", ylim = c(0,40)) ## plotting replicates
-points(x,y,pch=19,cex=.5) ## and original data
-
-## compute 95% prediction interval...
-PI <- apply(fv,1,quantile,prob=c(.025,0.975))
-## and plot it...
-lines(xp,PI[1,],col=2,lwd=2);lines(xp,PI[2,],col=2,lwd=2)
-
-## Confidence interval for comparison...
-pred <- predict(m.cd4,newdata=data.frame(time_diff=xp, id = 1),se=TRUE)
-lines(xp,pred$fit,col=3,lwd=2)
-u.ci <- pred$fit + 2*pred$se.fit
-l.ci <- pred$fit - 2*pred$se.fit
-lines(xp,u.ci,col=3,lwd=2);lines(xp,l.ci,col=3,lwd=2)
-
-
-
+ggsave(plot = conf.pred, filename = "results/slopes/confvspred.png")

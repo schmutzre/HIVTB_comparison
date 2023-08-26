@@ -83,7 +83,7 @@ plot <- plot_model(model.log,
                    value.offset = .3,
                    group.terms = c(1, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5)) +
   theme_bw()+
-  labs(title = "Incidence of suppression") + 
+  labs(title = "Risk factors for viral suppression") + 
   theme(plot.title = element_text(hjust = 0.5))
 plot
 

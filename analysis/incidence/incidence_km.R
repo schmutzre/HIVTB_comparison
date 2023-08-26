@@ -12,7 +12,8 @@ pacman:: p_load(
   survival,
   survminer,
   gridExtra,
-  Epi
+  Epi,
+  cmprsk
 )
 
 ##### data import/preprocessing ----
@@ -116,6 +117,12 @@ print(zoom_plotCH)
 ggsave(filename = "results/km_CH.png", plot = zoom_plotCH, width = 10, height = 8, dpi = 300)
 
 #### Aalen Johansen Model ----
+library(knitr)
+library(dplyr)
+library(survival)
+library(ggplot2)
+library(tibble)
+
 
 # Create the multi-state survival object
 aj_fit <- Surv(kaplan$persontime_years, kaplan$event_type, type = "mstate")
@@ -187,6 +194,27 @@ AJ.ch = recordPlot()
 png(filename = "results/incidence/AJ.ch.png", width = 750, height = 500)
 replayPlot(AJ.ch)
 dev.off()
+
+## Gray's test
+
+gray.result <- cuminc(ftime = kaplan$persontime_years, 
+                      fstatus = kaplan$event_type, 
+                      group = kaplan$cohort,
+                      cencode = 0)
+
+## Alternative Plot for Aalen Johansen with both states included (could also be combinded with both cohorts)
+
+install.packages("mstate")
+library(mstate)
+
+# Compute CIF
+cif <- Cuminc(time = kaplan$persontime_years, 
+              status = kaplan$event_type) 
+
+theme_set(theme_bw(base_size = 8))
+
+Aalen2states <- plot(cif, use.ggplot = TRUE,
+     conf.int = 0.95)
 
 
 
