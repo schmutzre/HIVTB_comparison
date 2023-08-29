@@ -989,14 +989,3 @@ ggsave(plot = incidenceviral, filename = "../results/plots_lab/incidenceviral.pn
 
 ```
 
-```{r}
-presenting
-
-PCA_incident <- incident %>% 
-  dplyr::select(id: tb_regimen) %>% 
-  filter(!is.na(tb_diag_rna))
-
-
-
-
-```
