@@ -17,14 +17,15 @@ pacman:: p_load(
 ##### data import/preprocessing ----
 
 kaplan_ch <- readRDS("data_clean/supress_df.rds") %>% 
-  filter(persontime_years.suppression >= 0)  #when last follow up date was before art start
+  filter(persontime_years.suppression > 0)  #when last follow up date was before art start
 
 kaplan_test <- kaplan_ch %>% 
   mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA")))
 
 kaplan_sa <- #...
   
-kaplan <- kaplan_test #... #join them together 
+kaplan <- kaplan_test %>% 
+  mutate(time_zero = 0) #... #join them together 
 
 #### Kaplan Meier model (inc. results/plotting) ----
 
@@ -154,7 +155,7 @@ plotCIF(fit.ch,
         ylim = c(1, 0), 
         xlim = c(0, 12),
         xlab = "Years",
-        ylab = "Probability of being viral suppression free",
+        ylab = "Probability of not being virally suppressed",
         yaxt = "n",
         main = "")
 

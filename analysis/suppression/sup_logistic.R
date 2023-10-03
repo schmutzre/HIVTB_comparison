@@ -25,6 +25,8 @@ ch <- readRDS("data_clean/supress_df.rds") %>%
          incidence = as.factor(case_incident_2m),
          baselineCD4 = as.factor(cd4_group),
          baselineRNA = as.factor(rna_group)) %>% 
+  filter(baselineRNA != "NA",
+         baselineCD4 != "NA") %>% 
   dplyr::select(id, incidence.sup , sex, cohort, agegroup, baselineCD4, baselineRNA)
 
 
@@ -81,7 +83,7 @@ plot <- plot_model(model.log,
                    vline.color = "red",
                    show.values = TRUE, 
                    value.offset = .3,
-                   group.terms = c(1, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5)) +
+                   group.terms = c(1, 2, 3, 3, 3, 4, 4, 5, 5)) +
   theme_bw()+
   labs(title = "Risk factors for viral suppression") + 
   theme(plot.title = element_text(hjust = 0.5))

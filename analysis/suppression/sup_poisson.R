@@ -14,7 +14,7 @@ pacman:: p_load(
 
 ##### data import/ prep ----
 ch <- readRDS("data_clean/supress_df.rds") %>% 
-  filter(persontime_years.suppression >= 0)
+  filter(persontime_years.suppression > 0)
 
 #sa <- readRDS("data_clean/art_sa")
 
@@ -71,8 +71,7 @@ print(disp_test)
 #### secondary plots ----
 
 #incidence of viral non-suppression
-rna_supression_treshold <- 400
-cd4_suppression_treshold <- 350
+rna_supression_treshold <- 50
 
 incidence <- ch %>% 
   summarise(sup_incidence = sum(incidence.sup), 
@@ -81,6 +80,7 @@ incidence <- ch %>%
 
 # Incidence calculations by each rna_group
 incidence_by_rna <- ch %>% 
+  filter(rna_group != "NA") %>% 
   group_by(rna_group) %>%
   summarise(sup_incidence = sum(incidence.sup), 
             person_years = sum(persontime_years.suppression)/1000) %>% 
@@ -111,13 +111,9 @@ ggsave(plot = incidence_cd4, filename = "results/incidence/incidence_cd4.png", w
 
 incidence_rna <- incidence_by_rna %>% 
   ggplot() +
-  geom_point(aes(x = baselineRNA, y = pois$rate)) +
-  geom_errorbar(aes(x= baselineRNA, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
-  geom_point(aes(x = "overall", y=incidence.total$pois$rate)) +
-  geom_errorbar(aes(x= "overall", ymin = incidence.total$pois$lower, 
-                    ymax = incidence.total$pois$upper), width = 0.2) +
-  labs(x= "Baseline HIV RNA viral load", y = "") +
-  scale_y_continuous(limits = c(0,3), expand = c(0,0))+
+  geom_point(aes(x = rna_group, y = pois$rate)) +
+  geom_errorbar(aes(x= rna_group, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
+  labs(x= "Baseline HIV RNA viral load", y = "Viral suppression per 1,000 person-years") +
   theme_bw()
 
 incidence_rna

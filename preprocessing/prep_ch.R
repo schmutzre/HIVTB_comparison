@@ -4,8 +4,16 @@ if(!require(pacman)) install.packages("pacman")
 
 pacman:: p_load(
   tidyverse,
-  haven
+  haven,
+  janitor,
+  gridExtra
 )
+
+pat <- read_dta("data_raw/pat.dta")
+
+df <- read_dta("data_raw/shcs_509_hivall.dta") %>% 
+  filter(
+    (art_start_date <= as.Date("2022-12-31") & art_start_date >= as.Date("2010-01-01")))
 
 #### Data ----
 treatment3 <- read_dta("data_raw/med_drug_code.dta") %>% 
@@ -19,6 +27,8 @@ var_disease <- read_dta("data_raw/var_disease.dta")
 admin <- read_dta("data_raw/admin.dta")
 modif <- read_dta("data_raw/modif_art.dta")
 
+width_descr <- 11 / cm(1)
+height_descr <- 8 / cm(1)
 
 # The followng df are the study populations. Once patients starting ART between 2010-2022 and once patients having a TB diagnosis 
 # between 2010-2022. These dataframes are mostly overlapping. 
@@ -43,7 +53,20 @@ filteredBOTH <- complete_ch %>%
          )
          
 
+filteredBOTH <- filteredBOTH %>%
+  mutate(region = as.numeric(region)) %>% 
+  left_join(var_region, by = "region") %>%
+  select(-region) %>%
+  rename(region = var_desc) %>% 
+  mutate(region = trimws(region)) %>% 
+  mutate(region = case_when(region %in% c("Southern Europe", "Western Europe", "Northern Europe", "Eastern Europe") ~ "Europe",
+                            region %in% c("Eastern Africa", "Middle Africa", "Southern Africa", "Western Africa") ~ "Sub-Saharan Africa",
+                            region %in% c("Eastern Asia", "South-Eastern Asia", "Southern Asia", "Western Asia") ~ "Asia",
+         TRUE ~ region))
+
 table(filteredBOTH$ethnicity)
+tabyl(filteredBOTH$region)
+tabyl(filteredBOTH$tbd_pat_birth)
 
 #### Prep ----
 
@@ -60,6 +83,8 @@ filteredBOTH <- filteredBOTH %>%
 ## add birth_country
   
 filteredBOTH <- as_factor(filteredBOTH, levels="labels")
+
+table(filteredBOTH$region)
 
 # Define a function to map countries to continents
 get_continent <- function(country) {
@@ -164,7 +189,29 @@ p2 <- ggplot(p2, aes(x = region_born, y = percent)) +
   ylab ("%")+
   theme_bw()
 
-plotp1p2 <- grid.arrange(p1, p2, ncol = 1)
+p3 <- filteredBOTH %>% 
+  group_by(region) %>% 
+  summarise(n = n(),
+            percent = round(n/nrow(filteredBOTH) * 100, 0)) %>% 
+  arrange(desc(n)) %>%
+  mutate(region = factor(region, levels = unique(region)))
+
+p3 <- ggplot(p3, aes(x = region, y = percent)) +
+  geom_segment(aes(x = region, xend = region, y = 0, yend = percent), color = "grey") +
+  geom_point(size = 3, color = "#69b3a2") +
+  coord_flip(ylim = c(0, max(p3$percent) + 16)) +
+  theme(
+    panel.grid.minor.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    legend.position = "none"
+  ) +
+  geom_text(aes(label = paste("n =", n)), hjust = -0.5, vjust = 0.5) +
+  xlab("") +
+  ylab ("%")+
+  theme_bw()
+
+
+plotp1p2 <- grid.arrange(p1, p2, p3, ncol = 1)
 
 ggsave(plot = plotp1p2, filename = "results/descriptive/origin.png", width = width_descr*2.5, height = height_descr*3)
 
@@ -310,10 +357,6 @@ filteredBOTH.regimen <- filteredBOTH.lab2 %>%
   ) %>% 
   select(-(num_art:art_start_date.y))
 
-combinations_count <- filteredBOTH.lab2 %>%
-  group_by(num_nrti, num_nnrti, num_pi, num_ntrti, num_fi, num_inti) %>%
-  summarise(count = n())
-
 # table of regimens
 filteredBOTH.regimen %>%
   group_by(regimen) %>%
@@ -357,7 +400,7 @@ drugs_tb <- read_dta("data_raw/med_drug.dta")  %>%
   left_join(tb, by = "id") %>% 
   filter(disease_tb == 1) %>% 
   filter(startdate > date_tb - 5,
-         startdate < date_tb + 60) %>% 
+         startdate < date_tb + 30)  %>% 
   mutate(tb_regimen = case_when(
     drug %in% c("INH", "RIF", "EMB", "PYZ") ~ "standard",
     TRUE ~ "other")) %>% 
