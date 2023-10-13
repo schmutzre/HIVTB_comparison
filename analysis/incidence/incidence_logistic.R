@@ -26,7 +26,9 @@ ch <- readRDS("data_clean/art_ch.rds") %>%
          incidence = as.factor(case_incident_2m),
          baselineCD4 = as.factor(cd4_group),
          baselineRNA = as.factor(rna_group),
-         born = as.factor(region_born)) %>% 
+         born = as.factor(region)) %>% 
+  filter(baselineCD4 != "NA",
+         baselineRNA != "NA") %>% 
   dplyr::select(id, incidence, sex, cohort, born, agegroup, baselineCD4, baselineRNA)
 
 ch.2 <-  readRDS("data_clean/art_ch.long.rds") %>% 
@@ -35,7 +37,9 @@ ch.2 <-  readRDS("data_clean/art_ch.long.rds") %>%
          incidence = as.factor(case_incident_2m),
          baselineCD4 = as.factor(cd4_group),
          baselineRNA = as.factor(rna_group),
-         born = as.factor(region_born)) %>% 
+         born = as.factor(region)) %>% 
+  filter(baselineCD4 != "NA",
+         baselineRNA != "NA") %>% 
   dplyr::select(id, incidence, sex, cohort, born, agegroup, baselineCD4, baselineRNA, rna, cd4) %>% 
   filter(!is.na(cd4),
          !is.na(rna))

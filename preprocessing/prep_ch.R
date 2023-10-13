@@ -9,13 +9,11 @@ pacman:: p_load(
   gridExtra
 )
 
-pat <- read_dta("data_raw/pat.dta")
 
-df <- read_dta("data_raw/shcs_509_hivall.dta") %>% 
-  filter(
-    (art_start_date <= as.Date("2022-12-31") & art_start_date >= as.Date("2010-01-01")))
+checkTB <- read_dta("data_raw/shcs_509_tbcases.dta")
 
-#### Data ----
+#### Data ----------------------------------------------------------------------
+
 treatment3 <- read_dta("data_raw/med_drug_code.dta") %>% 
   mutate(drug = drug_code)
 lab <- read_dta("data_raw/lab.dta")
@@ -33,58 +31,64 @@ height_descr <- 8 / cm(1)
 # The followng df are the study populations. Once patients starting ART between 2010-2022 and once patients having a TB diagnosis 
 # between 2010-2022. These dataframes are mostly overlapping. 
 
-filteredBOTH <- complete_ch %>%
-  filter(
-    (art_start_date <= as.Date("2022-12-31") & art_start_date >= as.Date("2010-01-01")) |
-      (date_tb <= as.Date("2022-12-31") & date_tb >= as.Date("2010-01-01"))
-  ) %>% 
-  dplyr::select(id, born, ethnicity, sex, regdate, risk, art_start_date, art_start_cd4, virus_type, pretreat, disease_tb, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, case_incident_1m, case_incident_2m, exitdate, exit_why, current_art, eligibility_art, tbd_drug_resist___1:tbd_drug_resist_others) %>% 
-  mutate(cohort = as.factor("CH")) %>% 
-  mutate(age_at_ART_start = year(art_start_date)-born,
-         prevalent_TB = case_when(
-           (date_tb < art_start_date+ 60 & date_tb > art_start_date - 60) ~ 1,
-           TRUE ~ 0),
-         recent_TB = case_when(
-           (date_tb < art_start_date - 60 & date_tb > art_start_date - 360) ~ 1,
-           TRUE ~ 0),
-         presenting_TB = case_when(
-           prevalent_TB == 1 | recent_TB ==1 ~ 1,
-           TRUE ~ 0) 
-         )
-         
+#### Filter studypopulation (Union of HIV- and TB-dataset) ---------------------
 
-filteredBOTH <- filteredBOTH %>%
-  mutate(region = as.numeric(region)) %>% 
+filteredBOTH <- complete_ch %>%
+  # Step 1: Filtering
+  filter(
+    between(art_start_date, as.Date("2010-01-01"), as.Date("2022-12-31")) |
+      between(date_tb, as.Date("2010-01-01"), as.Date("2022-12-31"))
+  ) %>%
+  # Step 2: Selecting columns
+  select(
+    id, born, sex, risk, art_start_date, art_start_cd4, virus_type, 
+    disease_tb, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, 
+    case_incident_2m, exitdate, exit_why, current_art, eligibility_art, 
+    starts_with("tbd_drug_resist_"), starts_with("tbd_antim_resist_")
+  ) %>%
+  # Step 3: Creating new variables
+  mutate(
+    cohort = "CH",
+    age_at_ART_start = year(art_start_date) - born,
+    prevalent_TB = ifelse(date_tb < art_start_date + 60 & date_tb > art_start_date - 60, 1, 0),
+    recent_TB = ifelse(date_tb < art_start_date - 60 & date_tb > art_start_date - 360, 1, 0),
+    presenting_TB = ifelse(prevalent_TB == 1 | recent_TB == 1, 1, 0)
+  ) %>%
+  # Step 4: Merging with var_region dataset
+  mutate(region = as.numeric(region)) %>%
   left_join(var_region, by = "region") %>%
   select(-region) %>%
-  rename(region = var_desc) %>% 
-  mutate(region = trimws(region)) %>% 
-  mutate(region = case_when(region %in% c("Southern Europe", "Western Europe", "Northern Europe", "Eastern Europe") ~ "Europe",
-                            region %in% c("Eastern Africa", "Middle Africa", "Southern Africa", "Western Africa") ~ "Sub-Saharan Africa",
-                            region %in% c("Eastern Asia", "South-Eastern Asia", "Southern Asia", "Western Asia") ~ "Asia",
-         TRUE ~ region))
+  rename(region = var_desc) %>%
+  # Step 5: Reclassifying region
+  mutate(
+    region = trimws(region),
+    region = case_when(
+      region %in% c("Southern Europe", "Western Europe", "Northern Europe", "Eastern Europe") ~ "Europe",
+      region %in% c("Eastern Africa", "Middle Africa", "Southern Africa", "Western Africa") ~ "Sub-Saharan Africa",
+      region %in% c("Eastern Asia", "South-Eastern Asia", "Southern Asia", "Western Asia") ~ "Asia",
+      TRUE ~ region
+    )
+  )
 
-table(filteredBOTH$ethnicity)
-tabyl(filteredBOTH$region)
-tabyl(filteredBOTH$tbd_pat_birth)
+#### Type of infection ---------------------------------------------------------
 
-#### Prep ----
-
-## Type of infection
 numbers_risk <- c(0:7, 9)
-mapping_risk <- c("other sources", "homosexual contacts", "heterosexual contacts", "i.v.drug use", 
-                    "i.v. drugs/sexual contacts", "clotting factors against hemophilia", "other blood products",
-                    "perinatal transmission", "unknown/inconclusive")
-  
+mapping_risk <- c(
+  "other sources", "homosexual contacts", "heterosexual contacts", "i.v.drug use",
+  "i.v. drugs/sexual contacts", "clotting factors against hemophilia", "other blood products",
+  "perinatal transmission", "unknown/inconclusive"
+)
+
 filteredBOTH <- filteredBOTH %>% 
-    mutate(risk2 = factor(risk, levels = numbers_risk, labels = mapping_risk)) %>% 
-    mutate(risk2 = ifelse(is.na(as.character(risk2)), "unknown/inconclusive", as.character(risk2)))
+  mutate(
+    risk2 = factor(risk, levels = numbers_risk, labels = mapping_risk),
+    risk2 = replace_na(as.character(risk2), "unknown/inconclusive")
+  )
+
   
-## add birth_country
+#### Birth country / nationality -----------------------------------------------
   
 filteredBOTH <- as_factor(filteredBOTH, levels="labels")
-
-table(filteredBOTH$region)
 
 # Define a function to map countries to continents
 get_continent <- function(country) {
@@ -101,7 +105,7 @@ get_continent <- function(country) {
     } else if (country %in% c("United States", "Canada")) {
       return("North America")
     } else if (country %in% c("Argentina", "Chile", "Brasil", "Peru", "Bolivia")) {
-      return("South America")
+      return("South/Latin America")
     } else if (country %in% c("Thailand", "Indonesia", "Cambodia", "Vietnam")) {
       return("Asia")
     }
@@ -110,118 +114,45 @@ get_continent <- function(country) {
     } 
   }
   
-# A second function for the imputation if the birth country isnt available. 
+# A second function if the birth country isnt available. 
 map_to_continent <- function(region) {
   case_when(
-    region %in% c("Western Africa", "Eastern Africa", "Middle Africa", "Southern Africa") ~ "Sub-Saharan Africa",
+    region %in% c("Western Africa", "Eastern Africa", "Middle Africa", "Southern Africa", "Sub-Saharan Africa") ~ "Sub-Saharan Africa",
     region == "Northern Africa" ~ "North Africa",
-    region %in% c("Southern Europe", "Eastern Europe", "Northern Europe", "Western Europe") ~ "Europe",
-    region %in% c("Eastern Asia", "Southern Asia", "South-Eastern Asia", "Western Asia", "Central Asia") ~ "Asia",
+    region %in% c("Southern Europe", "Eastern Europe", "Northern Europe", "Western Europe", "Europe") ~ "Europe",
+    region %in% c("Eastern Asia", "Southern Asia", "South-Eastern Asia", "Western Asia", "Central Asia", "Asia") ~ "Asia",
     region == "Northern America" ~ "North America",
-    region %in% c("South America", "Latin America and the Caribbean") ~ "South America",
+    region %in% c("South America", "Latin America and the Caribbean", "Central America") ~ "South/Latin America",
     region == "Oceania" ~ "Oceania",
-    region == "Central America" ~ "Central America",
     TRUE ~ "Unknown"
   )
 }
 
- ## Use mutate to create the 'region_born' column
-filteredBOTH <- filteredBOTH %>%
-  mutate(region_born = sapply(tbd_pat_birth, get_continent),
-         region_born = ifelse(
-           region_born != "Unknown",
-           region_born,
-           map_chr(region, map_to_continent)),
-         region_born = ifelse(
-           region_born != "Unknown",
-           region_born,
-           NA)) %>% 
-  mutate(case_incident_2m = case_when(case_incident_2m == "Incident TB" ~ 1,
+#' Note, the birth country is mostly available for TB patients, but not for non-TB patients
+
+filteredBOTH_region <- filteredBOTH %>%
+  mutate(region_born = case_when(disease_tb == 1 ~ sapply(tbd_pat_birth, get_continent),
+                                 TRUE ~ sapply(tbd_pat_birth, get_continent)),
+          region_born = case_when(
+          region_born != "Unknown" ~ region_born,
+          TRUE ~ map_chr(region, map_to_continent)),
+         region_born = case_when(
+           region_born != "Unknown" ~ region_born,
+           TRUE ~ NA),
+         case_incident_2m = case_when(case_incident_2m == "Incident TB" ~ 1,
                                       TRUE ~ 0),
          case_incident_1m = case_when(case_incident_2m == "Incident TB" ~ 1,
-                                      TRUE ~ 0))
+                                      TRUE ~ 0)) %>% 
+  select(-region, -tbd_pat_birth) %>% 
+  rename(region = region_born)
 
-library(flextable)
+#### CD4 and VL baseline -------------------------------------------------------
 
-p1 <- tabyl(filteredBOTH, ethnicity) %>% flextable()
-
-p1 <- filteredBOTH %>% 
-  group_by(ethnicity) %>% 
-  mutate(ethnicity = case_when(ethnicity == "Unknown" ~ NA_character_,
-                               TRUE ~ ethnicity)) %>% 
-  summarise(n = n(),
-            percent = round(n/nrow(filteredBOTH) * 100, 0)) %>% 
-  arrange(desc(n)) %>%
-  mutate(ethnicity = factor(ethnicity, levels = unique(ethnicity)))
-
-p1 <- ggplot(p1, aes(x = ethnicity, y = percent)) +
-  geom_segment(aes(x = ethnicity, xend = ethnicity, y = 0, yend = percent), color = "grey") +
-  geom_point(size = 3, color = "#69b3a2") +
-  coord_flip(ylim = c(0, max(p1$percent) + 15)) +
-  theme(
-    panel.grid.minor.y = element_blank(),
-    panel.grid.major.y = element_blank(),
-    legend.position = "none"
-  ) +
-  geom_text(aes(label = paste("n =", n)), hjust = -0.5, vjust = 0.5) +
-  xlab("") +
-  ylab("")+
-  theme_bw() 
-
-p2 <- filteredBOTH %>% 
-  group_by(region_born) %>% 
-  summarise(n = n(),
-            percent = round(n/nrow(filteredBOTH) * 100, 0)) %>% 
-  arrange(desc(n)) %>%
-  mutate(ethnicity = factor(region_born, levels = unique(region_born)))
-
-p2 <- ggplot(p2, aes(x = region_born, y = percent)) +
-  geom_segment(aes(x = region_born, xend = region_born, y = 0, yend = percent), color = "grey") +
-  geom_point(size = 3, color = "#69b3a2") +
-  coord_flip(ylim = c(0, max(p2$percent) + 16)) +
-  theme(
-    panel.grid.minor.y = element_blank(),
-    panel.grid.major.y = element_blank(),
-    legend.position = "none"
-  ) +
-  geom_text(aes(label = paste("n =", n)), hjust = -0.5, vjust = 0.5) +
-  xlab("") +
-  ylab ("%")+
-  theme_bw()
-
-p3 <- filteredBOTH %>% 
-  group_by(region) %>% 
-  summarise(n = n(),
-            percent = round(n/nrow(filteredBOTH) * 100, 0)) %>% 
-  arrange(desc(n)) %>%
-  mutate(region = factor(region, levels = unique(region)))
-
-p3 <- ggplot(p3, aes(x = region, y = percent)) +
-  geom_segment(aes(x = region, xend = region, y = 0, yend = percent), color = "grey") +
-  geom_point(size = 3, color = "#69b3a2") +
-  coord_flip(ylim = c(0, max(p3$percent) + 16)) +
-  theme(
-    panel.grid.minor.y = element_blank(),
-    panel.grid.major.y = element_blank(),
-    legend.position = "none"
-  ) +
-  geom_text(aes(label = paste("n =", n)), hjust = -0.5, vjust = 0.5) +
-  xlab("") +
-  ylab ("%")+
-  theme_bw()
-
-
-plotp1p2 <- grid.arrange(p1, p2, p3, ncol = 1)
-
-ggsave(plot = plotp1p2, filename = "results/descriptive/origin.png", width = width_descr*2.5, height = height_descr*3)
-
-## add cd4 and viral load baseline
-  
 lab.filtered <- lab %>% 
     select(id:cd4date, cd4, rna) %>% 
     filter(id %in% filteredBOTH$id)
   
-baseline_cd4 <- filteredBOTH %>% 
+baseline_cd4 <- filteredBOTH_region %>% 
     left_join(lab, by = "id") %>% 
     mutate(cd4_baseline = ifelse(labdate >= (art_start_date - 180) & labdate <= (art_start_date + 30), cd4, NA)) %>% 
     filter(!is.na(cd4_baseline)) %>% 
@@ -230,7 +161,7 @@ baseline_cd4 <- filteredBOTH %>%
     distinct(id, .keep_all = TRUE) %>% 
     ungroup() 
   
-baseline_rna <- filteredBOTH %>% 
+baseline_rna <- filteredBOTH_region %>% 
     left_join(lab, by = "id") %>% 
     mutate(rna_baseline = ifelse(labdate >= (art_start_date - 180) & labdate <= (art_start_date + 30), rna, NA)) %>% 
     filter(!is.na(rna_baseline)) %>% 
@@ -241,16 +172,18 @@ baseline_rna <- filteredBOTH %>%
   
 colnames_x <- paste0(setdiff(colnames(filteredBOTH), "id"), ".x")
   
-filteredBOTH.lab <- filteredBOTH %>% 
+filteredBOTH.lab <- filteredBOTH_region %>% 
     left_join(baseline_cd4 %>% select(id,cd4_baseline, labdate), by = "id") %>% 
     left_join(baseline_rna %>% select(id,rna_baseline, labdate), by = "id") %>% 
-    select(c(id, all_of(colnames(filteredBOTH)), cd4_baseline, labdate.x, rna_baseline, labdate.y)) %>% 
+    select(c(id, all_of(colnames(filteredBOTH_region)), cd4_baseline, labdate.x, rna_baseline, labdate.y)) %>% 
     rename(labdate_cd4 = labdate.x, labdate_rna = labdate.y) %>% 
     rename_with(~ str_replace_all(., "\\..$", ""))
   
 ## add groups of baseline values
+
 filteredBOTH.lab <- filteredBOTH.lab %>%
-    mutate(rna_group = case_when(
+    mutate(
+      rna_group = case_when(
       rna_baseline >= 0 & rna_baseline <= 999 ~ "0-999",
       rna_baseline >= 1000 & rna_baseline <= 9999 ~ "1000-9999",
       rna_baseline >= 10000 ~ "10000+",
@@ -261,9 +194,9 @@ filteredBOTH.lab <- filteredBOTH.lab %>%
       cd4_baseline >= 100 & cd4_baseline <= 349 ~ "100-349",
       cd4_baseline >= 350 ~ "350+",
       TRUE ~ "NA"
-    )) 
+    ))
   
-## add baseline WHO stage
+#### WHO stage -----------------------------------------------------------------
   
 dis2 <- dis %>% 
     filter(id %in% filteredBOTH.lab$id) %>% 
@@ -287,13 +220,13 @@ who_stages <- filteredBOTH.lab %>%
     )) %>% 
     ungroup() 
   
-filteredBOTH.lab <- filteredBOTH.lab %>% 
+filteredBOTH.who <- filteredBOTH.lab %>% 
     left_join(who_stages %>% select(id, who_stage), by = "id") 
   
-## add cd4 and viral load at tb diagnosis
-  
-# Create tb_diag_cd4 dataset
-tb_cd4 <- filteredBOTH.lab %>%
+#### CD4 and VL @ TB-date ------------------------------------------------------
+
+# Create tb_cd4 dataset
+tb_cd4 <- filteredBOTH.who %>%
     left_join(lab, by = "id") %>%
     mutate(
       tb_diag_cd4 = ifelse(labdate >= (date_tb - 180) & labdate <= (date_tb + 15), cd4, NA)
@@ -304,8 +237,8 @@ tb_cd4 <- filteredBOTH.lab %>%
     distinct(id, .keep_all = TRUE) %>%
     ungroup()
   
-  # Create tb_diag_rna dataset
-tb_rna <- filteredBOTH.lab %>%
+# Create tb_rna dataset
+tb_rna <- filteredBOTH.who %>%
     left_join(lab, by = "id") %>%
     mutate(
       tb_diag_rna = ifelse(labdate >= (date_tb - 180) & labdate <= (date_tb + 15), rna, NA)
@@ -316,38 +249,40 @@ tb_rna <- filteredBOTH.lab %>%
     distinct(id, .keep_all = TRUE) %>%
     ungroup()
   
-  # Join the two datasets together
+# Join the two datasets together
 tb_cd4_rna <- tb_cd4 %>%
     select(id, tb_diag_cd4) %>%
-    full_join(tb_rna %>% select(id, tb_diag_rna), by = "id")
+    full_join(tb_rna %>% 
+                select(id, tb_diag_rna), by = "id")
   
-filteredBOTH.lab <- filteredBOTH.lab %>%
+filteredBOTH.tb <- filteredBOTH.who %>%
     left_join(tb_cd4_rna, by = "id")
 
-filteredBOTH.lab2 <- filteredBOTH.lab %>%
+filteredBOTH.person <- filteredBOTH.tb %>%
   left_join(admin %>% select(id, last_fup_date), by = "id") %>% 
   mutate(last_persontime = case_when(
     !is.na(exitdate) ~ as.numeric(difftime(exitdate, art_start_date, units = "days")),
     TRUE ~ as.numeric(difftime(last_fup_date, art_start_date, units = "days"))
   ))
-#last persontime is defined as persontime until death or loss to follow up. For any incidencde models (eg. TB or viral suppression)
-#the person years have to be re-calculated as I havent incorporated persontime until incidence of any sort.
+#' last persontime is defined as persontime until death or loss to follow up. For any incidence models (eg. TB or viral suppression)
+#' the person years have to be re-calculated as I haven't incorporated persontime until incidence of any sort.
 
-## add treatment at art start
+#### Add ART-treatment ---------------------------------------------------------
+
 modif2 <- modif %>% 
 left_join(filteredBOTH %>% select(id, art_start_date), by = "id") %>% 
   filter(treatment != "",
          id %in% filteredBOTH$id)%>% 
-  mutate(time_diff = moddate - art_start_date) %>% 
+  mutate(time_diff_ART = moddate - art_start_date,
+         time_diff_STOP = enddate - moddate) %>% 
   group_by(id) %>% 
-  arrange(time_diff) %>% 
-  slice_min(time_diff, n = 1)
+  arrange(time_diff_ART) %>% 
+  slice_min(time_diff_ART, n = 1)
 
-filteredBOTH.regimen <- filteredBOTH.lab2 %>% 
+filteredBOTH.regimen <- filteredBOTH.person %>% 
   left_join(modif2, by = "id") %>% 
   mutate(
     regimen = case_when(
-      is.na(num_inti) & is.na(num_nnrti) & is.na(num_pi) ~ "unknown",
       num_pi != 0 ~ "PI-based",
       num_nnrti != 0 & num_inti != 0 ~ "Other",
       num_nnrti != 0 ~ "NNRTI-based",
@@ -357,64 +292,85 @@ filteredBOTH.regimen <- filteredBOTH.lab2 %>%
   ) %>% 
   select(-(num_art:art_start_date.y))
 
-# table of regimens
-filteredBOTH.regimen %>%
-  group_by(regimen) %>%
-  summarise(count = n()) %>%
-  mutate(percent = (count / sum(count)) * 100) 
+filteredBOTH.regimen <- filteredBOTH.regimen %>% 
+  mutate(current_art = case_when(current_art == "" ~ NA,
+                                 TRUE ~ current_art))
 
-# table of drug combinations
-filteredBOTH.regimen %>% 
-  group_by(treatment) %>% 
-  summarise(count = n()) %>% 
-  arrange(desc(count)) %>% 
-  mutate(percent = (count / sum(count)) * 100)
+# Generate frequency table
+freq_table <- tabyl(filteredBOTH.regimen$current_art, show_na = FALSE)
+freq_table2 <- tabyl(filteredBOTH.regimen$treatment, show_na = FALSE)
+# Sort by proportion and get top 5
+top_5 <- freq_table[order(-freq_table$percent), ][1:5, ]
+top_52 <- freq_table[order(-freq_table2$percent), ][1:5, ]
+
 
 #17 are NNRTI and INSTI based
 # Note: there are some id's for which moddate = enddate. Will have to check with Lukas what that means.
 
-# Add TB resistance
-filteredBOTH.resist <- filteredBOTH.regimen %>% 
-  rowwise() %>%
-  mutate(
-    tb_drug_resist = case_when(
-      # Check if any of the columns have a value of 1
-      any(c_across(tbd_drug_resist___1:tbd_drug_resist_others) == "Checked") ~ 1,
-      
-      # Check if all columns have a value of 0
-      all(c_across(tbd_drug_resist___1:tbd_drug_resist___99) == "Unchecked") ~ 0,
-      
-      # Return NA for all other cases
-      TRUE ~ NA_integer_
-    )
-  ) %>%
-  ungroup() %>%   # To remove the rowwise grouping
-  select(-c(tbd_drug_resist___1:tbd_drug_resist_others))
+#### TB resistance -------------------------------------------------------------
 
-# Add TB treatment
-
-tb <- filteredBOTH.resist %>% 
+library(labelled)
+df_tb <- complete_ch %>% 
   filter(disease_tb == 1)
+var_labels <- labelled::var_label(df_tb)
 
-drugs_tb <- read_dta("data_raw/med_drug.dta")  %>% 
-  left_join(tb, by = "id") %>% 
-  filter(disease_tb == 1) %>% 
-  filter(startdate > date_tb - 5,
-         startdate < date_tb + 30)  %>% 
-  mutate(tb_regimen = case_when(
-    drug %in% c("INH", "RIF", "EMB", "PYZ") ~ "standard",
-    TRUE ~ "other")) %>% 
-  select(id, tb_regimen, date_tb, startdate) %>% 
+cols_to_rename_res <- names(df_tb)[which(names(df_tb) %in% paste0("tbd_drug_resist___", 1:99))]
+new_names_res <- unlist(var_labels[cols_to_rename_res])
+names_vector_res <- setNames(cols_to_rename_res, new_names_res)
+
+df_tb <- df_tb %>%
+  dplyr::rename(!!!names_vector_res)
+
+tb_resi <- df_tb %>%
+  select(id, date_tb, Rifampicin_R:Others_R) %>%
+  pivot_longer(cols = Rifampicin_R:Others_R, names_to = "Drug", values_to = "value") %>% 
+  filter(value == 1) %>%
   group_by(id) %>%
-  slice(if (any(tb_regimen == "standard")) which(tb_regimen == "standard") else sample(1:n(), 1)) %>%
-  ungroup() %>%
-  # Ensuring no "standard" id appears in "other"
-  distinct(id, .keep_all = TRUE)
+  summarise(
+    TB_resistance = paste(gsub("_R$", "", Drug), collapse = ", ")
+  ) %>%
+  ungroup()
+
+filteredBOTH.resist <- filteredBOTH.regimen %>% 
+  left_join(tb_resi , by = "id") %>% 
+  select(-c(tbd_drug_resist___1:tbd_drug_resist_others)) %>% 
+  mutate(TB_resistance = case_when(!is.na(TB_resistance) ~ 1,
+                   TRUE ~ 0))
+
+#### TB treatment --------------------------------------------------------------
+test <- complete_ch %>% 
+  select(tbd_antim_resist___1:tbd_antim_resist_others)
+cols_to_rename <- names(df_tb)[which(names(df_tb) %in% paste0("tbd_antim_resist___", 1:99))]
+new_names <- unlist(var_labels[cols_to_rename])
+names_vector <- setNames(cols_to_rename, new_names)
+
+df_tb <- df_tb %>%
+  dplyr::rename(!!!names_vector)
+
+tb <- df_tb %>%
+  select(id, date_tb, RHZE_TX:Others_TX) %>% 
+  pivot_longer(cols = RHZE_TX:Others_TX, names_to = "Drug", values_to = "value") %>%
+  filter(value == 1) %>%
+  group_by(id) %>%
+  summarise(
+    TB_regimen = ifelse(any(Drug == "RHZE_TX"), "standard", paste(gsub("_TX$", "", Drug), collapse = ", "))
+  ) %>%
+  ungroup()
 
 filteredBOTH.tbtreatment <- filteredBOTH.resist %>% 
-  left_join(drugs_tb %>% select(id, tb_regimen), by = "id")
+  left_join(tb , by = "id") %>% 
+  select(-c(tbd_antim_resist___1:tbd_antim_resist_others))
 
-##### adding lab data ----
+tableTB <- tabyl(filteredBOTH.tbtreatment$TB_regimen, show_na = FALSE)
+
+filteredBOTH.tbtreatment <- filteredBOTH.tbtreatment %>% 
+  mutate(TB_regimen_group = 
+           case_when(TB_regimen %in% c(tableTB[20,1], tableTB[13,1],tableTB[12,1],tableTB[10,1],tableTB[9,1],tableTB[7,1]) ~ "standard",
+                                        TB_regimen %in% c(tableTB[19,1],tableTB[15,1],tableTB[14,1],tableTB[11,1],tableTB[10,1],tableTB[8,1],tableTB[4,1]) ~ "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone",
+                                        TB_regimen %in% c(tableTB[18,1],tableTB[17,1],tableTB[16,1],tableTB[6,1],tableTB[5,1],tableTB[4,1],tableTB[3,1],tableTB[1,1]) ~ "Rifabutin-based regimen, plus at least HZE +/- another drug",
+                                        TRUE ~ NA))
+
+##### adding lab data ----------------------------------------------------------
 
 # First, sort the lab dataframe by id and labdate
 lab.filtered <- lab.filtered %>% 
@@ -497,17 +453,16 @@ lab_long <- labdate_df %>%
 
 filteredBOTH.lablong <- lab_long %>% 
   left_join(filteredBOTH.labwide, by = "id") %>% 
-  mutate(time_diff = as.numeric(labdate - art_start_date.x, units = "days")) %>% 
-  select(id:tb_regimen)
+  mutate(time_diff = as.numeric(labdate - art_start_date.x, units = "days"))
 
-#### Selecting study population and saving the clean files ----
-#selecting the relevant columns for the last time
+#### Selecting study population and saving the clean files ---------------------
+
 filteredBOTH.labwidefinal <- filteredBOTH.labwide %>% 
-  select(-c(virus_type, pretreat, tbd_pat_birth, region, current_art, eligibility_art)) %>% 
+  select(-labdate_cd4, -labdate_rna, -current_art) %>% 
   rename(art_start_date = art_start_date.x)
 
 filteredBOTH.lablongfinal <- filteredBOTH.lablong %>% 
-  select(-c(virus_type, pretreat, tbd_pat_birth, region, current_art, eligibility_art)) %>% 
+  select(-labdate_cd4, -labdate_rna, -current_art) %>% 
   rename(art_start_date = art_start_date.x)
 
 #wide
@@ -517,9 +472,15 @@ art_ch <- filteredBOTH.labwidefinal %>%
          !is.na(sex),
          !is.na(born),
          year(art_start_date) - born >= 16,
-         is.na(exitdate) | exitdate >= art_start_date) 
+         is.na(exitdate) | exitdate >= art_start_date,
+         eligibility_art ==1) 
 
-saveRDS(art_ch, "data_clean/art_ch.rds")
+saveRDS(art_ch, "data_clean/art_ch_lab.rds")
+
+art_ch_noLab <- art_ch %>% 
+  select(id:TB_regimen)
+
+saveRDS(art_ch_noLab, "data_clean/art_ch.rds")
 
 tb_ch <- filteredBOTH.labwidefinal %>% 
   filter(date_tb <= as.Date("2022-12-31") & date_tb >= as.Date("2010-01-01"),
@@ -528,7 +489,12 @@ tb_ch <- filteredBOTH.labwidefinal %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) 
   
-saveRDS(tb_ch, "data_clean/tb_ch.rds") 
+saveRDS(tb_ch, "data_clean/tb_ch_lab.rds") 
+
+tb_ch_noLab <- tb_ch %>% 
+  select(id:TB_regimen)
+
+saveRDS(tb_ch_noLab, "data_clean/tb_ch.rds") 
 
 #long
 art_ch.long <- filteredBOTH.lablongfinal %>% 
@@ -538,7 +504,7 @@ art_ch.long <- filteredBOTH.lablongfinal %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) 
 
-saveRDS(art_ch.long, "data_clean/art_ch.long.rds")
+saveRDS(art_ch.long, "data_clean/art_ch_lablong.rds")
 
 tb_ch.long <- filteredBOTH.lablongfinal %>% 
   filter(date_tb <= as.Date("2022-12-31") & date_tb >= as.Date("2010-01-01"),
@@ -547,6 +513,11 @@ tb_ch.long <- filteredBOTH.lablongfinal %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) 
 
-saveRDS(tb_ch.long, "data_clean/tb_ch.long.rds") 
+saveRDS(tb_ch.long, "data_clean/tb_ch_lablong.rds") 
 
-  
+### overview TB
+
+tb_overview <- tb_ch %>%
+  group_by(TB_resistance, TB_regimen_group) %>%
+  summarise(count = n()) %>%
+  mutate(proportion = round(count / sum(count),2))

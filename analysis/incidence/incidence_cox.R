@@ -28,12 +28,14 @@ cox_ch <- readRDS("data_clean/art_ch.rds") %>%
     case_incident_2m == 0 ~ last_persontime/360
   )
   )  %>% 
+  filter(rna_group != "NA",
+         cd4_group != "NA") %>% 
   mutate(agegroup = cut(age_at_ART_start, breaks = custom_breaks, include.lowest = TRUE),
            agegroup = as.factor(agegroup),
            baselineCD4 = as.factor(cd4_group),
-            incidence = case_incident_2m,
+          incidence = case_incident_2m,
            baselineRNA = as.factor(rna_group),
-           born = as.factor(region_born)) %>%
+           born = as.factor(region)) %>%
   dplyr::select(id, art_start_date, incidence, date_tb, cohort, persontime_years, exitdate, born, exit_why, last_fup_date, agegroup, baselineCD4, baselineRNA, sex) %>% 
   mutate(event_type = case_when(
     incidence == 1 ~ 1,
@@ -61,7 +63,7 @@ cox$baselineRNA <- droplevels(cox$baselineRNA)
 cox.surv_obj <- Surv(cox$persontime_years, cox$incidence)
 
 #Model
-model.cox <- coxph(cox.surv_obj ~ cohort + agegroup + sex +baselineCD4 + baselineRNA, data = cox)
+model.cox <- coxph(cox.surv_obj ~ cohort + agegroup + sex + baselineCD4 + baselineRNA, data = cox)
 
 #### results /plot ----
 
@@ -76,7 +78,7 @@ plot <- plot_model(model.cox,
                    vline.color = "red",
                    show.values = TRUE, 
                    value.offset = .3,
-                   group.terms = c(1, 2, 2, 2, 3, 4, 4, 4, 5, 5, 5)) +
+                   group.terms = c(1, 2, 2, 2, 3, 4, 4, 5, 5)) +
   theme_bw()+
   labs(title = "Hazard Ratios for Factors Associated with TB Incidence",
        y = "Hazard ratios") + 
