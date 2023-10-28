@@ -4,8 +4,8 @@ library(tidyverse)
 
 ## Suppression ##
 
-ch <- readRDS("data_clean/art_ch.rds")
-ch.long <- readRDS("data_clean/art_ch.long.rds")
+ch <- readRDS("data_clean/art_ch_lab.rds")
+ch.long <- readRDS("data_clean/art_ch_lablong.rds")
 #sa.long <- 
 long <- ch.long
 
@@ -28,7 +28,7 @@ lab_long_next <- long %>%
 # Print suppression_dates to see the results
 suppression_dates <- lab_long_next %>%
   group_by(id) %>%
-  filter(rna < rna_supression_treshold & next_rna < rna_supression_treshold) %>%
+  filter(rna < rna_suppression_treshold & next_rna < rna_suppression_treshold) %>%
   slice_min(next_labdate, n = 1) %>% 
   dplyr::select(id, next_labdate)  # Select next_labdate instead of labdate
 
@@ -54,11 +54,6 @@ saveRDS(object = viral_suppression_df, file = "data_clean/supress_df.rds")
 
 ## Rebound ##
 
-library(dplyr)
-
-library(dplyr)
-
-# Your existing code
 lab_long_rebound <- lab_long %>% 
   inner_join(suppression_dates, by = "id") %>%   # Join by id
   filter(labdate > next_labdate,
@@ -71,7 +66,6 @@ lab_long_rebound <- lab_long %>%
   arrange(id, labdate) %>% 
   slice_head(n=1)
 
-# Adding rows from viral_suppression_df
 new_rows <- viral_suppression_df %>% 
   filter(incidence.sup == 1) %>% 
   anti_join(lab_long_rebound, by = "id")

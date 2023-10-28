@@ -13,15 +13,11 @@ pacman:: p_load(
   sjPlot
   )
 
-
-width_descr <- 11 / cm(1)
-height_descr <- 8 / cm(1)
-
 ##### data import/ prep ----
 #SHCS
 custom_breaks <- c(16, 24, 34, 44, 100)
 
-ch <- readRDS("data_clean/art_ch.rds") %>% 
+ch <- readRDS("data_clean/art_ch.rds") 
   mutate(agegroup = cut(age_at_ART_start, breaks = custom_breaks, include.lowest = TRUE),
          agegroup = as.factor(agegroup),
          incidence = case_incident_2m,

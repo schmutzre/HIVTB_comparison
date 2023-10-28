@@ -1,0 +1,132 @@
+---
+title: "EDA"
+author: "Remo Schmutz"
+date: "2023-10-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(table1)
+library(tidyverse)
+```
+
+## Table 1
+
+```{r, include=FALSE}
+complete <- readRDS("../../data_clean/art_ch.rds")
+#sa <- 
+#complete <-  bindrows(ch, sa)
+
+# Columns #
+
+complete$presenting_TB <- 
+  factor(complete$presenting_TB, 
+         levels=c(0,1),
+         labels=c("Not presenting with TB", # Reference
+                  "Presenting with TB"))
+
+# Age #
+
+label(complete$age_at_ART_start) <- "Age at start of ART"
+
+# Sex #
+
+complete$sex <- 
+  factor(complete$sex, 
+         levels=c("Male","Female"))
+label(complete$sex) <- "Sex"
+
+# Site of TB #
+
+label(complete$site_TB) <- "Site of TB"
+
+# Source of original HIV infection #
+
+complete$risk <- 
+  factor(complete$risk, 
+         levels=c("Homosexual","Heterosexual","IVD, needle sharing", "IVD/sexual", 
+                  "Other blood products", "Perinatal", "Other sources"),
+         labels = c("Homosexual contacts", "Heterosexual contacts", "I.v. drug use (with needle sharing)", "I.v. drugs/sexual contacts (unclear which one)", "Other blood products", "Perinatal transmission", "Other sources"))
+
+label(complete$risk) <- "Source of original HIV infection"
+
+# CD4 baseline #
+
+label(complete$cd4_baseline) <- "CD4 cell count at start of ART"
+
+# Viral load baseline #
+
+label(complete$rna_baseline) <- "HIV RNA viral load at start of ART"
+
+# WHO stage #
+
+label(complete$who_stage) <- "WHO clinical stage"
+
+# HIV treatment regimens #
+
+label(complete$regimen) <- "HIV treatment regimens"
+```
+
+```{r}
+table1(~ age_at_ART_start + sex + site_TB + risk + cd4_baseline + rna_baseline + who_stage + regimen | cohort * presenting_TB, data=complete,
+       overall = c(left = "All"))
+```
+
+## Table 2
+
+```{r, include=FALSE}
+tb <- readRDS("../../data_clean/tb_ch.rds")
+#sa <- 
+#tb <- 
+
+# Age #
+
+custom_breaks <- c(16, 24, 34, 44, 100)
+
+tb <- tb %>% 
+  mutate(age_tb = year(date_tb) - born) %>%
+  mutate(agegroups = cut(age_tb, breaks = custom_breaks, include.lowest = TRUE)) %>% 
+  mutate(agegroups = as.factor(agegroups))
+
+tb$agegroups <- 
+  factor(tb$agegroups, 
+         levels=c("[16,24]","(24,34]", "(34,44]", "(44,100]"),
+         labels=c("16-24","25-34", "35-44", "45+"))
+
+label(tb$agegroups) <- "Age when diagnosed with TB"
+
+# Sex #
+
+tb$sex <- 
+  factor(tb$sex, 
+         levels=c("Male","Female"))
+label(tb$sex) <- "Sex"
+
+# Birth country #
+
+label(tb$region) <- "Birth country"
+tb$region <- 
+  factor(tb$region, 
+         levels=c("Sub-Saharan Africa","Europe","North Africa" , "North America", "South/Latin America", "Oceania", "Asia"))
+
+# Site of TB #
+
+label(tb$site_TB) <- "Site of TB"
+
+# CD4 cell count at TB diagnosis #
+
+label(tb$tb_diag_cd4) <- "CD4 cell count at TB diagnosis"
+
+# Viral load at TB diagnosis #
+
+label(tb$tb_diag_rna) <- "HIV RNA viral load at TB diagnosis"
+
+```
+
+```{r}
+table1(~ agegroups + sex + region + site_TB + TB_regimen_group + tb_diag_cd4 + tb_diag_rna | cohort, data=tb,
+       overall = c(left = "All"))
+```
+
+## Table 3 
