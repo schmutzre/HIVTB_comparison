@@ -11,16 +11,16 @@ pacman:: p_load(
 
 #### Data ----------------------------------------------------------------------
 
-treatment3 <- read_dta("data_raw/med_drug_code.dta") %>% 
+treatment3 <- read_dta("data_raw/CH/med_drug_code.dta") %>% 
   mutate(drug = drug_code)
-lab <- read_dta("data_raw/lab.dta")
-complete_ch <- read_dta("data_raw/shcs_509_hivall.dta")
-var_region <- read_dta("data_raw/var_region.dta") %>% 
+lab <- read_dta("data_raw/CH/lab.dta")
+complete_ch <- read_dta("data_raw/CH/shcs_509_hivall.dta")
+var_region <- read_dta("data_raw/CH/var_region.dta") %>% 
   mutate(region = as.numeric(region))
-dis <- read_dta("data_raw/dis.dta")
-var_disease <- read_dta("data_raw/var_disease.dta")
-admin <- read_dta("data_raw/admin.dta")
-modif <- read_dta("data_raw/modif_art.dta")
+dis <- read_dta("data_raw/CH/dis.dta")
+var_disease <- read_dta("data_raw/CH/var_disease.dta")
+admin <- read_dta("data_raw/CH/admin.dta")
+modif <- read_dta("data_raw/CH/modif_art.dta")
 
 width_descr <- 11 / cm(1)
 height_descr <- 8 / cm(1)
@@ -47,14 +47,14 @@ filteredBOTH <- complete_ch %>%
   mutate(
     cohort = "CH",
     age_at_ART_start = year(art_start_date) - born,
-    prevalent_TB = case_when(
+    prevalent_tb = case_when(
       date_tb < art_start_date + 60 & date_tb > art_start_date - 60 ~ 1,
       TRUE ~ 0),
-    recent_TB = case_when(
+    recent_tb = case_when(
       date_tb < art_start_date - 60 & date_tb > art_start_date - 360 ~ 1,
       TRUE ~ 0),
-    presenting_TB = case_when(
-      prevalent_TB == 1 | recent_TB == 1 ~ 1,
+    presenting_tb = case_when(
+      prevalent_tb == 1 | recent_tb == 1 ~ 1,
       TRUE ~ 0)) %>% 
   # Step 4: Merging with var_region dataset
   mutate(region = as.numeric(region)) %>%
@@ -223,7 +223,7 @@ filteredBOTH.who <- filteredBOTH.lab %>%
 tb_cd4 <- filteredBOTH.who %>%
     left_join(lab, by = "id") %>%
     mutate(
-      tb_diag_cd4 = ifelse(labdate >= (date_tb - 180) & labdate <= (date_tb + 15), cd4, NA)
+      tb_diag_cd4 = ifelse(labdate >= (date_tb - 120) & labdate <= (date_tb + 120), cd4, NA)
     ) %>%
     filter(!is.na(tb_diag_cd4)) %>%
     arrange(id, abs(date_tb - labdate)) %>%
@@ -235,7 +235,7 @@ tb_cd4 <- filteredBOTH.who %>%
 tb_rna <- filteredBOTH.who %>%
     left_join(lab, by = "id") %>%
     mutate(
-      tb_diag_rna = ifelse(labdate >= (date_tb - 180) & labdate <= (date_tb + 15), rna, NA)
+      tb_diag_rna = ifelse(labdate >= (date_tb - 120) & labdate <= (date_tb + 120), rna, NA)
     ) %>%
     filter(!is.na(tb_diag_rna)) %>%
     arrange(id, abs(date_tb - labdate)) %>%
@@ -297,7 +297,6 @@ freq_table2 <- tabyl(filteredBOTH.regimen$treatment, show_na = FALSE)
 top_5 <- freq_table[order(-freq_table$percent), ][1:5, ]
 top_52 <- freq_table[order(-freq_table2$percent), ][1:5, ]
 
-
 #17 are NNRTI and INSTI based
 # Note: there are some id's for which moddate = enddate. Will have to check with Lukas what that means.
 
@@ -321,17 +320,18 @@ tb_resi <- df_tb %>%
   filter(value == 1) %>%
   group_by(id) %>%
   summarise(
-    TB_resistance = paste(gsub("_R$", "", Drug), collapse = ", ")
+    resistance_tb = paste(gsub("_R$", "", Drug), collapse = ", ")
   ) %>%
   ungroup()
 
 filteredBOTH.resist <- filteredBOTH.regimen %>% 
   left_join(tb_resi , by = "id") %>% 
   select(-c(tbd_drug_resist___1:tbd_drug_resist_others)) %>% 
-  mutate(TB_resistance = case_when(!is.na(TB_resistance) ~ 1,
+  mutate(resistance_tb = case_when(!is.na(resistance_tb) ~ 1,
                    TRUE ~ 0))
 
 #### TB treatment --------------------------------------------------------------
+
 test <- complete_ch %>% 
   select(tbd_antim_resist___1:tbd_antim_resist_others)
 cols_to_rename <- names(df_tb)[which(names(df_tb) %in% paste0("tbd_antim_resist___", 1:99))]
@@ -347,7 +347,7 @@ tb <- df_tb %>%
   filter(value == 1) %>%
   group_by(id) %>%
   summarise(
-    TB_regimen = ifelse(any(Drug == "RHZE_TX"), "standard", paste(gsub("_TX$", "", Drug), collapse = ", "))
+    regimen_tb = ifelse(any(Drug == "RHZE_TX"), "standard", paste(gsub("_TX$", "", Drug), collapse = ", "))
   ) %>%
   ungroup()
 
@@ -355,13 +355,13 @@ filteredBOTH.tbtreatment <- filteredBOTH.resist %>%
   left_join(tb , by = "id") %>% 
   select(-c(tbd_antim_resist___1:tbd_antim_resist_others))
 
-tableTB <- tabyl(filteredBOTH.tbtreatment$TB_regimen, show_na = FALSE)
+tableTB <- tabyl(filteredBOTH.tbtreatment$regimen_tb, show_na = FALSE)
 
 filteredBOTH.tbtreatment <- filteredBOTH.tbtreatment %>% 
-  mutate(TB_regimen_group = 
-           case_when(TB_regimen %in% c(tableTB[20,1], tableTB[13,1],tableTB[12,1],tableTB[10,1],tableTB[9,1],tableTB[7,1]) ~ "standard",
-                                        TB_regimen %in% c(tableTB[19,1],tableTB[15,1],tableTB[14,1],tableTB[11,1],tableTB[10,1],tableTB[8,1],tableTB[4,1]) ~ "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone",
-                                        TB_regimen %in% c(tableTB[18,1],tableTB[17,1],tableTB[16,1],tableTB[6,1],tableTB[5,1],tableTB[4,1],tableTB[3,1],tableTB[1,1]) ~ "Rifabutin-based regimen, plus at least HZE +/- another drug",
+  mutate(regimen_tb_group = 
+           case_when(regimen_tb %in% c(tableTB[20,1], tableTB[13,1],tableTB[12,1],tableTB[10,1],tableTB[9,1],tableTB[7,1]) ~ "standard",
+                                        regimen_tb %in% c(tableTB[19,1],tableTB[15,1],tableTB[14,1],tableTB[11,1],tableTB[10,1],tableTB[8,1],tableTB[4,1]) ~ "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone",
+                                        regimen_tb %in% c(tableTB[18,1],tableTB[17,1],tableTB[16,1],tableTB[6,1],tableTB[5,1],tableTB[4,1],tableTB[3,1],tableTB[1,1]) ~ "Rifabutin-based regimen, plus at least HZE +/- another drug",
                                         TRUE ~ NA))
 
 checkingIDs <- complete_ch %>% 
@@ -371,7 +371,7 @@ checkingIDs <- complete_ch %>%
 #### Site of TB ----------------------------------------------------------------
 
 filteredBOTH.tbsite <- filteredBOTH.tbtreatment %>% 
-  mutate(site_TB = case_when(disease_tbc == "TBC" ~ "Pulmonary",
+  mutate(site_tb = case_when(disease_tbc == "TBC" ~ "Pulmonary",
                              type_tb_shcs == "TEX" ~ "Extrapulmonary",
                              TRUE ~ NA))
 
@@ -465,36 +465,20 @@ filteredBOTH.lablong <- lab_long %>%
 filteredBOTH.labwidefinal <- filteredBOTH.labwide %>% 
   select(-labdate_cd4, -labdate_rna, -current_art) %>% 
   rename(art_start_date = art_start_date.x) %>% 
-  mutate(cohort = as.factor(cohort),
-         disease_tb = as.factor(disease_tb),
-         incident_TB = as.factor(case_incident_2m),
-         prevalent_TB = as.factor(prevalent_TB),
-         recent_TB = as.factor(recent_TB),
-         presenting_TB = as.factor(presenting_TB),
-         rna_group = as.factor(rna_group),
-         cd4_group = as.factor(cd4_group),
-         who_stage = as.factor(who_stage),
-         regimen = as.factor(regimen),
-         resistance_TB = as.factor(TB_resistance),
-         regimen_TB_group = as.factor(TB_regimen_group),
-         site_TB = as.factor(site_TB))
+  mutate(across(
+    c(cohort, disease_tb, case_incident_2m, prevalent_tb, recent_tb, presenting_tb,
+      rna_group, cd4_group, who_stage, regimen, resistance_tb, regimen_tb_group, site_tb),
+    as.factor
+  ))
 
 filteredBOTH.lablongfinal <- filteredBOTH.lablong %>% 
   select(-labdate_cd4, -labdate_rna, -current_art) %>% 
   rename(art_start_date = art_start_date.x) %>% 
-  mutate(cohort = as.factor(cohort),
-         disease_tb = as.factor(disease_tb),
-         incident_TB = as.factor(case_incident_2m),
-         prevalent_TB = as.factor(prevalent_TB),
-         recent_TB = as.factor(recent_TB),
-         presenting_TB = as.factor(presenting_TB),
-         rna_group = as.factor(rna_group),
-         cd4_group = as.factor(cd4_group),
-         who_stage = as.factor(who_stage),
-         regimen = as.factor(regimen),
-         resistance_TB = as.factor(TB_resistance),
-         regimen_TB_group = as.factor(TB_regimen_group),
-         site_TB = as.factor(site_TB))
+  mutate(across(
+    c(cohort, disease_tb, case_incident_2m, prevalent_tb, recent_tb, presenting_tb,
+      rna_group, cd4_group, who_stage, regimen, resistance_tb, regimen_tb_group, site_tb),
+    as.factor
+  ))
 
 #wide
 
@@ -505,12 +489,12 @@ art_ch <- filteredBOTH.labwidefinal %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date,
          eligibility_art ==1) %>% 
-  select(-virus_type, - type_tb_shcs, -disease_tbc, -eligibility_art, -TB_regimen_group, -TB_resistance, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP)
+  select(-virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4,-eligibility_art, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP)
 
 saveRDS(art_ch, "data_clean/art_ch_lab.rds")
 
 art_ch_noLab <- art_ch %>% 
-  select(id:site_TB)
+  select(id:site_tb)
 
 saveRDS(art_ch_noLab, "data_clean/art_ch.rds")
 
@@ -520,12 +504,12 @@ tb_ch <- filteredBOTH.labwidefinal %>%
          !is.na(born),
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) %>% 
-  select(-virus_type, - type_tb_shcs, -disease_tbc, -eligibility_art, -TB_regimen_group, -TB_resistance, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP)
+  select(-virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP)
   
 saveRDS(tb_ch, "data_clean/tb_ch_lab.rds") 
 
 tb_ch_noLab <- tb_ch %>% 
-  select(id:site_TB)
+  select(id:site_tb)
 
 saveRDS(tb_ch_noLab, "data_clean/tb_ch.rds") 
 
@@ -536,7 +520,7 @@ art_ch.long <- filteredBOTH.lablongfinal %>%
          !is.na(born),
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) %>% 
-  select(id:site_TB, -virus_type, - type_tb_shcs, -disease_tbc, -eligibility_art, -TB_regimen_group, -TB_resistance, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP)
+  select(id:site_tb, -virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -art_start_cd4)
 
 saveRDS(art_ch.long, "data_clean/art_ch_lablong.rds")
 
@@ -546,13 +530,13 @@ tb_ch.long <- filteredBOTH.lablongfinal %>%
          !is.na(born),
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) %>% 
-  select(id:site_TB, -virus_type, - type_tb_shcs, -disease_tbc, -eligibility_art, -TB_regimen_group, -TB_resistance, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP)
+  select(id:site_tb, -virus_type, -type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -art_start_cd4)
 
 saveRDS(tb_ch.long, "data_clean/tb_ch_lablong.rds") 
 
 ### overview TB
 
 tb_overview <- tb_ch %>%
-  group_by(TB_resistance, TB_regimen_group) %>%
+  group_by(resistance_tb, regimen_tb_group) %>%
   summarise(count = n()) %>%
   mutate(proportion = round(count / sum(count),2))
