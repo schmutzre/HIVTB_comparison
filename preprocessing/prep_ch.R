@@ -6,11 +6,13 @@ pacman:: p_load(
   tidyverse,
   haven,
   janitor,
-  gridExtra
+  gridExtra,
+  stringr
 )
 
 #### Data ----------------------------------------------------------------------
 
+treat <- read_dta("data_raw/CH/med_product.dta")
 treatment3 <- read_dta("data_raw/CH/med_drug_code.dta") %>% 
   mutate(drug = drug_code)
 lab <- read_dta("data_raw/CH/lab.dta")
@@ -21,9 +23,6 @@ dis <- read_dta("data_raw/CH/dis.dta")
 var_disease <- read_dta("data_raw/CH/var_disease.dta")
 admin <- read_dta("data_raw/CH/admin.dta")
 modif <- read_dta("data_raw/CH/modif_art.dta")
-
-width_descr <- 11 / cm(1)
-height_descr <- 8 / cm(1)
 
 #' The followng df are the study populations. Once patients starting ART between 2010-2022 and once patients having a TB diagnosis 
 #' between 2010-2022. These dataframes are mostly overlapping. 
@@ -40,22 +39,22 @@ filteredBOTH <- complete_ch %>%
   select(
     id, born, sex, risk, art_start_date, haart_start_date, art_start_cd4, virus_type, 
     disease_tb, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, 
-    case_incident_2m, exitdate, exit_why, current_art, eligibility_art, 
+    case_incident_2m, exitdate, current_art, eligibility_art, 
     starts_with("tbd_drug_resist_"), starts_with("tbd_antim_resist_")
   ) %>%
   # Step 3: Creating new variables
   mutate(
-    cohort = "CH",
-    age_at_ART_start = year(art_start_date) - born,
-    prevalent_tb = case_when(
+    cohort = as.factor("CH"),
+    age_at_art_start = year(art_start_date) - born,
+    prevalent_tb = as_factor(case_when(
       date_tb < art_start_date + 60 & date_tb > art_start_date - 60 ~ 1,
-      TRUE ~ 0),
-    recent_tb = case_when(
+      TRUE ~ 0)),
+    recent_tb = as_factor(case_when(
       date_tb < art_start_date - 60 & date_tb > art_start_date - 360 ~ 1,
-      TRUE ~ 0),
-    presenting_tb = case_when(
+      TRUE ~ 0)),
+    presenting_tb = as_factor(case_when(
       prevalent_tb == 1 | recent_tb == 1 ~ 1,
-      TRUE ~ 0)) %>% 
+      TRUE ~ 0))) %>% 
   # Step 4: Merging with var_region dataset
   mutate(region = as.numeric(region)) %>%
   left_join(var_region, by = "region") %>%
@@ -64,12 +63,12 @@ filteredBOTH <- complete_ch %>%
   # Step 5: Reclassifying region
   mutate(
     region = trimws(region),
-    region = case_when(
+    region = as.factor(case_when(
       region %in% c("Southern Europe", "Western Europe", "Northern Europe", "Eastern Europe") ~ "Europe",
       region %in% c("Eastern Africa", "Middle Africa", "Southern Africa", "Western Africa") ~ "Sub-Saharan Africa",
       region %in% c("Eastern Asia", "South-Eastern Asia", "Southern Asia", "Western Asia") ~ "Asia",
       TRUE ~ region
-    )
+    ))
   )
 
 sum(is.na(filteredBOTH$art_start_date))
@@ -78,8 +77,8 @@ sum(is.na(filteredBOTH$haart_start_date))
 #### Type of infection ---------------------------------------------------------
 
 filteredBOTH <- as_factor(filteredBOTH, levels="labels") %>% 
-  mutate(risk = case_when(risk == "Unknown" ~ NA,
-                          TRUE ~ risk))
+  mutate(risk = as.factor(case_when(risk == "Unknown" ~ NA,
+                          TRUE ~ risk)))
 
 #### Birth country / nationality -----------------------------------------------
 
@@ -133,8 +132,6 @@ filteredBOTH_region <- filteredBOTH %>%
            region_born != "Unknown" ~ region_born,
            TRUE ~ NA),
          case_incident_2m = case_when(case_incident_2m == "Incident TB" ~ 1,
-                                      TRUE ~ 0),
-         case_incident_1m = case_when(case_incident_2m == "Incident TB" ~ 1,
                                       TRUE ~ 0)) %>% 
   select(-region, -tbd_pat_birth) %>% 
   mutate(region = as.factor(region_born)) %>% 
@@ -177,18 +174,18 @@ filteredBOTH.lab <- filteredBOTH_region %>%
 
 filteredBOTH.lab <- filteredBOTH.lab %>%
     mutate(
-      rna_group = case_when(
+      rna_group = as.factor(case_when(
       rna_baseline >= 0 & rna_baseline <= 999 ~ "0-999",
       rna_baseline >= 1000 & rna_baseline <= 9999 ~ "1000-9999",
       rna_baseline >= 10000 ~ "10000+",
       TRUE ~ "NA"
-    ),
-    cd4_group = case_when(
+    )),
+    cd4_group = as.factor(case_when(
       cd4_baseline >= 0 & cd4_baseline <= 99 ~ "0-99",
       cd4_baseline >= 100 & cd4_baseline <= 349 ~ "100-349",
       cd4_baseline >= 350 ~ "350+",
       TRUE ~ "NA"
-    ))
+    )))
   
 #### WHO stage -----------------------------------------------------------------
   
@@ -275,15 +272,29 @@ left_join(filteredBOTH %>% select(id, art_start_date), by = "id") %>%
 
 filteredBOTH.regimen <- filteredBOTH.person %>% 
   left_join(modif2, by = "id") %>% 
+  mutate(treatment = str_replace_all(treatment, "ETC", "FTC")) %>%
   mutate(
+    treatment = case_when(
+      str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & (str_detect(treatment, "EFV") | str_detect(treatment, "NVP")) ~ "TDF + 3TC/FTC + EFV/NVP",
+      str_detect(treatment, "AZT") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "DTG") ~ "AZT + 3TC/FTC + DTG",
+      str_detect(treatment, "TDF") & str_detect(treatment, "AZT") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "DTG") ~ "TDF + AZT + 3TC/FTC + DTG",
+      str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "DTG") ~ "TDF + 3TC/FTC + DTG",
+      str_detect(treatment, "AZT") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "LPV") ~ "AZT + 3TC/FTC + LPV",
+      str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "LPV") ~ "TDF + 3TC/FTC + LPV",
+      (str_detect(treatment, "AZT") | str_detect(treatment, "TDF")) & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & (str_detect(treatment, "LPV") | str_detect(treatment, "ATV") | str_detect(treatment, "DTG")) ~ "AZT/TDF + 3TC/FTC + LPV/r or ATV/r or DTG",
+      TRUE ~ str_replace_all(treatment, " ", " + ")  # Replace spaces with plus signs
+    ),
     regimen = case_when(
       num_inti != 0 ~ "INSTI-based",
       num_pi != 0 ~ "PI-based",
       num_nnrti != 0 ~ "NNRTI-based",
       TRUE ~ "Other"
-    )
-  ) %>% 
-  select(-(num_art:art_start_date.y))
+    )) %>% 
+  select(-(num_art:art_start_date.y)) %>% 
+  rename(art_start_date = art_start_date.x)
+
+
+flextable::flextable(tabyl(filteredBOTH.regimen$treatment))
 
 filteredBOTH.regimen <- filteredBOTH.regimen %>% 
   mutate(current_art = case_when(current_art == "" ~ NA,
@@ -327,8 +338,12 @@ tb_resi <- df_tb %>%
 filteredBOTH.resist <- filteredBOTH.regimen %>% 
   left_join(tb_resi , by = "id") %>% 
   select(-c(tbd_drug_resist___1:tbd_drug_resist_others)) %>% 
-  mutate(resistance_tb = case_when(!is.na(resistance_tb) ~ 1,
-                   TRUE ~ 0))
+  mutate(resistance_tb_any = as.factor(case_when(!is.na(resistance_tb) ~ 1,
+                   TRUE ~ 0)),
+         resistance_tb_mdr = as.factor(case_when(
+           (str_detect(resistance_tb, "Rifampicin")| str_detect(resistance_tb, "Rifabutin")) & str_detect(resistance_tb, "Isoniazid") ~ 1,
+           TRUE ~ 0
+         )))
 
 #### TB treatment --------------------------------------------------------------
 
@@ -347,8 +362,8 @@ tb <- df_tb %>%
   filter(value == 1) %>%
   group_by(id) %>%
   summarise(
-    regimen_tb = ifelse(any(Drug == "RHZE_TX"), "standard", paste(gsub("_TX$", "", Drug), collapse = ", "))
-  ) %>%
+    regimen_tb = as.factor(ifelse(any(Drug == "RHZE_TX"), "standard", paste(gsub("_TX$", "", Drug), collapse = ", "))
+  )) %>%
   ungroup()
 
 filteredBOTH.tbtreatment <- filteredBOTH.resist %>% 
@@ -359,10 +374,10 @@ tableTB <- tabyl(filteredBOTH.tbtreatment$regimen_tb, show_na = FALSE)
 
 filteredBOTH.tbtreatment <- filteredBOTH.tbtreatment %>% 
   mutate(regimen_tb_group = 
-           case_when(regimen_tb %in% c(tableTB[20,1], tableTB[13,1],tableTB[12,1],tableTB[10,1],tableTB[9,1],tableTB[7,1]) ~ "standard",
+           as.factor(case_when(regimen_tb %in% c(tableTB[20,1], tableTB[13,1],tableTB[12,1],tableTB[10,1],tableTB[9,1],tableTB[7,1]) ~ "standard",
                                         regimen_tb %in% c(tableTB[19,1],tableTB[15,1],tableTB[14,1],tableTB[11,1],tableTB[10,1],tableTB[8,1],tableTB[4,1]) ~ "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone",
                                         regimen_tb %in% c(tableTB[18,1],tableTB[17,1],tableTB[16,1],tableTB[6,1],tableTB[5,1],tableTB[4,1],tableTB[3,1],tableTB[1,1]) ~ "Rifabutin-based regimen, plus at least HZE +/- another drug",
-                                        TRUE ~ NA))
+                                        TRUE ~ NA)))
 
 checkingIDs <- complete_ch %>% 
   filter(id %in% c(16388, 91050)) %>% 
@@ -371,172 +386,68 @@ checkingIDs <- complete_ch %>%
 #### Site of TB ----------------------------------------------------------------
 
 filteredBOTH.tbsite <- filteredBOTH.tbtreatment %>% 
-  mutate(site_tb = case_when(disease_tbc == "TBC" ~ "Pulmonary",
+  mutate(site_tb = as.factor(case_when(disease_tbc == "TBC" ~ "Pulmonary",
                              type_tb_shcs == "TEX" ~ "Extrapulmonary",
-                             TRUE ~ NA))
+                             TRUE ~ NA)))
 
-#### adding lab data -----------------------------------------------------------
+#### Last changes before saving ------------------------------------------------
 
-# First, sort the lab dataframe by id and labdate
-lab.filtered <- lab.filtered %>% 
-  arrange(id, labdate)
+final <- filteredBOTH.tbsite %>% 
+  mutate(disease_tb = as.factor(disease_tb),
+         who_stage = as.factor(who_stage),
+         id = as.character(id))
 
-# Add a column to count the occurrence of each id
-lab.filtered <- lab.filtered %>% 
+#### lab data -----------------------------------------------------------
+
+lab_both <- lab.filtered %>% 
+  arrange(id, labdate) %>% 
   group_by(id) %>% 
-  mutate(row = row_number()) %>% 
-  ungroup
+  mutate(timepoint = row_number()) %>% 
+  ungroup() %>% 
+  select(-cd4date) %>%
+  left_join(filteredBOTH.tbsite %>% select(id, art_start_date, disease_tb, date_tb), by = "id") %>% 
+  mutate(time_diff = as.numeric(labdate - art_start_date, units = "days"))
 
-# Now reshape lab dataframe using pivot_wider
-lab_wide <- lab.filtered %>%
-  pivot_wider(names_from = row, 
-              values_from = c(labdate, cd4, rna), 
-              names_sep = "_") 
+#### Selection study population ------------------------------------------------
 
-reshape_lab_data_ordered <- function(lab_data){
-  lab_data <- lab_data %>% 
-    arrange(id, labdate) %>%
-    group_by(id) %>%
-    mutate(row = row_number())
-  
-  # Split the data into separate dataframes for each measurement
-  labdate_wide <- lab_data %>%
-    select(id, row, labdate) %>%
-    pivot_wider(names_from = row, 
-                values_from = labdate, 
-                names_prefix = "labdate_")
-  
-  cd4_wide <- lab_data %>%
-    select(id, row, cd4) %>%
-    pivot_wider(names_from = row, 
-                values_from = cd4, 
-                names_prefix = "cd4_")
-  
-  rna_wide <- lab_data %>%
-    select(id, row, rna) %>%
-    pivot_wider(names_from = row, 
-                values_from = rna, 
-                names_prefix = "rna_")
-  
-  # Combine the separate measurements back into one dataframe
-  combined_wide <- reduce(list(labdate_wide, cd4_wide, rna_wide), left_join, by = "id")
-  
-  return(combined_wide)
-}
+## ART ##
 
-# Use the function to reshape lab data
-lab_wide_ordered <- reshape_lab_data_ordered(lab.filtered)
-
-# Now join with filteredBOTH
-filteredBOTH.labwide <- left_join(filteredBOTH.tbsite, lab_wide_ordered, by = "id") 
-
-## Now i will also retransform in long format, as this is more conveniant for some tasks.
-
-# Separate labdate, cd4, and rna columns
-labdate_df <- lab_wide_ordered %>% 
-  select(id, starts_with("labdate")) %>% 
-  pivot_longer(-id, names_to = "timepoint", values_to = "labdate")
-
-cd4_df <- lab_wide_ordered %>% 
-  select(id, starts_with("cd4")) %>% 
-  pivot_longer(-id, names_to = "timepoint", values_to = "cd4")
-
-rna_df <- lab_wide_ordered %>% 
-  select(id, starts_with("rna")) %>% 
-  pivot_longer(-id, names_to = "timepoint", values_to = "rna")
-
-cd4_df$timepoint <- gsub("cd4_", "", cd4_df$timepoint)
-labdate_df$timepoint <- gsub("labdate_", "", labdate_df$timepoint)
-rna_df$timepoint <- gsub("rna_", "", rna_df$timepoint)
-
-# Join the labdate, cd4, and rna columns into one dataframe
-lab_long <- labdate_df %>%
-  full_join(cd4_df, by = c("id", "timepoint")) %>%
-  full_join(rna_df, by = c("id", "timepoint"))
-
-# Add a time_diff column
-
-filteredBOTH.lablong <- lab_long %>% 
-  left_join(filteredBOTH.labwide, by = "id") %>% 
-  mutate(time_diff = as.numeric(labdate - art_start_date.x, units = "days"))
-
-#### Selecting study population and saving the clean files ---------------------
-
-filteredBOTH.labwidefinal <- filteredBOTH.labwide %>% 
-  select(-labdate_cd4, -labdate_rna, -current_art) %>% 
-  rename(art_start_date = art_start_date.x) %>% 
-  mutate(across(
-    c(cohort, disease_tb, case_incident_2m, prevalent_tb, recent_tb, presenting_tb,
-      rna_group, cd4_group, who_stage, regimen, resistance_tb, regimen_tb_group, site_tb),
-    as.factor
-  ))
-
-filteredBOTH.lablongfinal <- filteredBOTH.lablong %>% 
-  select(-labdate_cd4, -labdate_rna, -current_art) %>% 
-  rename(art_start_date = art_start_date.x) %>% 
-  mutate(across(
-    c(cohort, disease_tb, case_incident_2m, prevalent_tb, recent_tb, presenting_tb,
-      rna_group, cd4_group, who_stage, regimen, resistance_tb, regimen_tb_group, site_tb),
-    as.factor
-  ))
-
-#wide
-
-art_ch <- filteredBOTH.labwidefinal %>% 
+art_ch <- final %>% 
   filter(art_start_date <= as.Date("2022-12-31") & art_start_date >= as.Date("2010-01-01"),
          !is.na(sex),
          !is.na(born),
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date,
          eligibility_art ==1) %>% 
-  select(-virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4,-eligibility_art, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP)
+  mutate(incident_tb = as.factor(case_incident_2m)) %>% 
+  select(-virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -haart_start_date)
 
-saveRDS(art_ch, "data_clean/art_ch_lab.rds")
+saveRDS(art_ch, "data_clean/ch/art_ch.rds")
 
-art_ch_noLab <- art_ch %>% 
-  select(id:site_tb)
+## TB ##
 
-saveRDS(art_ch_noLab, "data_clean/art_ch.rds")
-
-tb_ch <- filteredBOTH.labwidefinal %>% 
+tb_ch <- final %>% 
   filter(date_tb <= as.Date("2022-12-31") & date_tb >= as.Date("2010-01-01"),
          !is.na(sex),
          !is.na(born),
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) %>% 
-  select(-virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP)
+  mutate(incident_tb = as.factor(case_incident_2m)) %>% 
+  select(-virus_type, -type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -haart_start_date)
   
-saveRDS(tb_ch, "data_clean/tb_ch_lab.rds") 
+saveRDS(tb_ch, "data_clean/ch/tb_ch.rds") 
 
-tb_ch_noLab <- tb_ch %>% 
-  select(id:site_tb)
+## Lab data ##
 
-saveRDS(tb_ch_noLab, "data_clean/tb_ch.rds") 
+lab_ch <- lab_both %>% 
+  filter(id %in% art_ch$id)
 
-#long
-art_ch.long <- filteredBOTH.lablongfinal %>% 
-  filter(art_start_date <= as.Date("2022-12-31") & art_start_date >= as.Date("2010-01-01"),
-         !is.na(sex),
-         !is.na(born),
-         year(art_start_date) - born >= 16,
-         is.na(exitdate) | exitdate >= art_start_date) %>% 
-  select(id:site_tb, -virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -art_start_cd4)
-
-saveRDS(art_ch.long, "data_clean/art_ch_lablong.rds")
-
-tb_ch.long <- filteredBOTH.lablongfinal %>% 
-  filter(date_tb <= as.Date("2022-12-31") & date_tb >= as.Date("2010-01-01"),
-         !is.na(sex),
-         !is.na(born),
-         year(art_start_date) - born >= 16,
-         is.na(exitdate) | exitdate >= art_start_date) %>% 
-  select(id:site_tb, -virus_type, -type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_1m, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -art_start_cd4)
-
-saveRDS(tb_ch.long, "data_clean/tb_ch_lablong.rds") 
+saveRDS(lab_ch, "data_clean/ch/lab_ch")
 
 ### overview TB
 
-tb_overview <- tb_ch %>%
-  group_by(resistance_tb, regimen_tb_group) %>%
-  summarise(count = n()) %>%
-  mutate(proportion = round(count / sum(count),2))
+#tb_overview <- tb_ch %>%
+ # group_by(resistance_tb, regimen_tb_group) %>%
+  #summarise(count = n()) %>%
+  #mutate(proportion = round(count / sum(count),2))
+
