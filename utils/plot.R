@@ -13,7 +13,9 @@ plot_trend <- function(model, data, N = 10000) {
   Vb <- vcov(model, unconditional = TRUE)
   
   # Generate new data for predictions
-  newd <- with(data, data.frame(time_diff = seq(min(time_diff), max(time_diff), length = 200), id = 1))
+  newd <- with(data, expand.grid(time_diff = seq(min(time_diff), max(time_diff), length = 200),
+                                 cohort = levels(cohort),
+                                 KEEP.OUT.ATTRS = FALSE))
   
   # Compute predicted values and standard errors
   pred <- predict(model, newd, se.fit = TRUE)
@@ -46,7 +48,6 @@ plot_trend <- function(model, data, N = 10000) {
   plot_name <- deparse(substitute(model))
   trend.plot <- ggplot(pred, aes(x = time_diff)) +
     geom_ribbon(aes(ymin = lwrS, ymax = uprS), alpha = 0.2, fill = "red") +
-    geom_ribbon(aes(ymin = lwrP, ymax = uprP), alpha = 0.2, fill = "blue") +
     geom_line(aes(y = fit), color = "red") +
     theme_classic()+
     scale_x_continuous(expand = c(0,0))+
@@ -63,7 +64,9 @@ plot_trend.raw.rna <- function(model, data, N = 10000) {
   Vb <- vcov(model, unconditional = TRUE)
   
   # Generate new data for predictions
-  newd <- with(data, data.frame(time_diff = seq(min(time_diff), max(time_diff), length = 200), id = 1))
+  newd <- with(data, expand.grid(time_diff = seq(min(time_diff), max(time_diff), length = 200),
+                                 cohort = levels(cohort),
+                                 KEEP.OUT.ATTRS = FALSE))
   
   # Compute predicted values and standard errors
   pred <- predict(model, newd, se.fit = TRUE)
@@ -96,9 +99,8 @@ plot_trend.raw.rna <- function(model, data, N = 10000) {
   
   # Plot the trend with ggplot2
   trend.plot <- ggplot(pred, aes(x = time_diff)) +
-    geom_line(data = data, aes(group = factor(id), y = trans.rna), color = "grey", alpha = .2) +
+    geom_line(data = data, aes(group = factor(id), y = rna_trans), color = "grey", alpha = .2) +
     geom_ribbon(aes(ymin = lwrS_adj, ymax = uprS), alpha = 0.2, fill = "red") +
-    geom_ribbon(aes(ymin = lwrP, ymax = uprP), alpha = 0.2, fill = "blue") +
     geom_line(aes(y = fit), color = "red") +
     theme_classic()+
     scale_x_continuous(expand = c(0,0))+
@@ -114,13 +116,15 @@ plot_trend.raw.rna <- function(model, data, N = 10000) {
 }
 
 
-plot_trend.rawcd4 <- function(model, data, N = 10000) {
+plot_trend.raw.cd4 <- function(model, data, N = 10000) {
   
   # Compute Vb, the covariance matrix of the random effects
   Vb <- vcov(model, unconditional = TRUE)
   
   # Generate new data for predictions
-  newd <- with(data, data.frame(time_diff = seq(min(time_diff), max(time_diff), length = 200), id = 1))
+  newd <- with(data, expand.grid(time_diff = seq(min(time_diff), max(time_diff), length = 200),
+                                 cohort = levels(cohort),
+                                 KEEP.OUT.ATTRS = FALSE))
   
   # Compute predicted values and standard errors
   pred <- predict(model, newd, se.fit = TRUE)
@@ -152,9 +156,8 @@ plot_trend.rawcd4 <- function(model, data, N = 10000) {
   # Plot the trend with ggplot2
 plot_name <- deparse(substitute(model))
   trend.plot <- ggplot(pred, aes(x = time_diff)) +
-    geom_line(data = data, aes(group = factor(id), y = sqrt(cd4)), color = "grey", alpha = .2) +
+    geom_line(data = data, aes(group = factor(id), y = cd4_trans), color = "grey", alpha = .2) +
     geom_ribbon(aes(ymin = lwrS, ymax = uprS), alpha = 0.2, fill = "red") +
-    geom_ribbon(aes(ymin = lwrP, ymax = uprP), alpha = 0.2, fill = "blue") +
     geom_line(aes(y = fit), color = "red") +
     theme_classic()+
     scale_x_continuous(expand = c(0,0))+

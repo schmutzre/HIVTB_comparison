@@ -362,7 +362,7 @@ tb <- df_tb %>%
   filter(value == 1) %>%
   group_by(id) %>%
   summarise(
-    regimen_tb = as.factor(ifelse(any(Drug == "RHZE_TX"), "standard", paste(gsub("_TX$", "", Drug), collapse = ", "))
+    regimen_tb = as.factor(ifelse(any(Drug == "RHZE_TX"), "Standard", paste(gsub("_TX$", "", Drug), collapse = ", "))
   )) %>%
   ungroup()
 
@@ -374,7 +374,7 @@ tableTB <- tabyl(filteredBOTH.tbtreatment$regimen_tb, show_na = FALSE)
 
 filteredBOTH.tbtreatment <- filteredBOTH.tbtreatment %>% 
   mutate(regimen_tb_group = 
-           as.factor(case_when(regimen_tb %in% c(tableTB[20,1], tableTB[13,1],tableTB[12,1],tableTB[10,1],tableTB[9,1],tableTB[7,1]) ~ "standard",
+           as.factor(case_when(regimen_tb %in% c(tableTB[20,1], tableTB[13,1],tableTB[12,1],tableTB[10,1],tableTB[9,1],tableTB[7,1]) ~ "Standard",
                                         regimen_tb %in% c(tableTB[19,1],tableTB[15,1],tableTB[14,1],tableTB[11,1],tableTB[10,1],tableTB[8,1],tableTB[4,1]) ~ "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone",
                                         regimen_tb %in% c(tableTB[18,1],tableTB[17,1],tableTB[16,1],tableTB[6,1],tableTB[5,1],tableTB[4,1],tableTB[3,1],tableTB[1,1]) ~ "Rifabutin-based regimen, plus at least HZE +/- another drug",
                                         TRUE ~ NA)))
@@ -407,6 +407,18 @@ lab_both <- lab.filtered %>%
   select(-cd4date) %>%
   left_join(filteredBOTH.tbsite %>% select(id, art_start_date, disease_tb, date_tb), by = "id") %>% 
   mutate(time_diff = as.numeric(labdate - art_start_date, units = "days"))
+
+lab_cd4 <- lab_both %>% 
+  select(-rna, timepoint) %>% 
+  filter(!is.na(cd4)) %>% 
+  mutate(timepoint = row_number()) %>% 
+  rename(date_cd4 = labdate)
+
+lab_rna <- lab_both %>% 
+  select(-cd4, -timepoint) %>% 
+  filter(!is.na(rna)) %>% 
+  mutate(timepoint = row_number()) %>% 
+  rename(date_rna = labdate)
 
 #### Selection study population ------------------------------------------------
 
@@ -442,7 +454,17 @@ saveRDS(tb_ch, "data_clean/ch/tb_ch.rds")
 lab_ch <- lab_both %>% 
   filter(id %in% art_ch$id)
 
-saveRDS(lab_ch, "data_clean/ch/lab_ch")
+saveRDS(lab_ch, "data_clean/ch/lab_ch.rds")
+
+cd4_ch <- lab_cd4 %>% 
+  filter(id %in% art_ch$id)
+
+saveRDS(cd4_ch, "data_clean/ch/cd4_ch.rds")
+
+rna_ch <- lab_rna %>% 
+  filter(id %in% art_ch$id)
+
+saveRDS(rna_ch, "data_clean/ch/rna_ch.rds")
 
 ### overview TB
 

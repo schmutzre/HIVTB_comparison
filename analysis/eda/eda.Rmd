@@ -2,33 +2,37 @@
 title: "EDA"
 author: "Remo Schmutz"
 date: "2023-10-28"
-output: html_document
+output:
+  html_document: default
+  fig_caption: true
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
 library(table1)
 library(tidyverse)
+library(knitr)
+library(png)
 ```
 
-## Table 1
+# Table 1
 
 ```{r, include=FALSE}
-complete <- readRDS("../../data_clean/art_ch.rds")
-#sa <- 
-#complete <-  bindrows(ch, sa)
+
+complete <-  readRDS("../../data_clean/art.rds")
 
 # Columns #
 
-complete$presenting_TB <- 
-  factor(complete$presenting_TB, 
+complete$presenting_tb <- 
+  factor(complete$presenting_tb, 
          levels=c(0,1),
          labels=c("Not presenting with TB", # Reference
                   "Presenting with TB"))
 
 # Age #
 
-label(complete$age_at_ART_start) <- "Age at start of ART"
+label(complete$age_at_art_start) <- "Age at start of ART"
 
 # Sex #
 
@@ -39,7 +43,7 @@ label(complete$sex) <- "Sex"
 
 # Site of TB #
 
-label(complete$site_TB) <- "Site of TB"
+label(complete$site_tb) <- "Site of TB"
 
 # Source of original HIV infection #
 
@@ -68,24 +72,24 @@ label(complete$who_stage) <- "WHO clinical stage"
 label(complete$regimen) <- "HIV treatment regimens"
 ```
 
-```{r}
-table1(~ age_at_ART_start + sex + site_TB + risk + cd4_baseline + rna_baseline + who_stage + regimen | cohort * presenting_TB, data=complete,
-       overall = c(left = "All"))
+```{r echo=FALSE, fig.align='center'}
+table1(~ age_at_art_start + sex + site_tb + risk + cd4_baseline + rna_baseline + who_stage + regimen | cohort * presenting_tb, data = complete,
+       overall = c(left = "All"),
+       topclass="Rtable1-zebra",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) or a recent history of TB (diagnosis 2-12 months before ART start) with patients with no history of TB.")
 ```
 
-## Table 2
+# Table 2
 
 ```{r, include=FALSE}
-tb <- readRDS("../../data_clean/tb_ch.rds")
-#sa <- 
-#tb <- 
+tb <- readRDS("../../data_clean/tb.rds")
 
 # Age #
 
 custom_breaks <- c(16, 24, 34, 44, 100)
 
 tb <- tb %>% 
-  mutate(age_tb = year(date_tb) - born) %>%
+  mutate(age_tb = year(date_tb) - year(born)) %>%  
   mutate(agegroups = cut(age_tb, breaks = custom_breaks, include.lowest = TRUE)) %>% 
   mutate(agegroups = as.factor(agegroups))
 
@@ -112,7 +116,7 @@ tb$region <-
 
 # Site of TB #
 
-label(tb$site_TB) <- "Site of TB"
+label(tb$site_tb) <- "Site of TB"
 
 # CD4 cell count at TB diagnosis #
 
@@ -121,12 +125,17 @@ label(tb$tb_diag_cd4) <- "CD4 cell count at TB diagnosis"
 # Viral load at TB diagnosis #
 
 label(tb$tb_diag_rna) <- "HIV RNA viral load at TB diagnosis"
-
 ```
 
-```{r}
-table1(~ agegroups + sex + region + site_TB + TB_regimen_group + tb_diag_cd4 + tb_diag_rna | cohort, data=tb,
-       overall = c(left = "All"))
+```{r echo = FALSE}
+table1(~ agegroups + sex + region + site_tb + regimen_tb_group + tb_diag_cd4 + tb_diag_rna | cohort, data = tb,
+       overall = c(left = "All"),
+       topclass="Rtable1-zebra",
+       caption = "HIV-positive patients with TB diagnosed between 2010 and 2022.")
 ```
 
-## Table 3 
+<br><br> <!-- This adds two line breaks for spacing -->
+
+# TB Incidence
+
+![Hallo zusammen](images/incidence_rna-01.png){width="2500"} <br><br> ![](images/incidence_cd4-04.png){width="2500"} <br><br> ![The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk.](images/incidence_aj.png){width="1500"} <br><br> ![](images/cd4.png){width="2500"} <br><br> ![](images/rna.png){width="2500"}

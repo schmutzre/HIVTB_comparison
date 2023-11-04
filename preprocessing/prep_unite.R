@@ -52,3 +52,8 @@ freq_table2 <- tabyl(art_rsa$treatment, show_na = FALSE)
 top_ch <- freq_table[order(-freq_table$percent), ][1:5, ]
 top_rsa <- freq_table2[order(-freq_table2$percent), ][1:5, ]
 
+
+table(art_ch$regimen_tb)
+table(art_ch$regimen_tb_group)
+
+table(art_rsa$regimen_tb)

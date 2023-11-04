@@ -30,8 +30,8 @@ tblBAS <- read.csv("data_raw/RSA/tblBAS.csv") %>%
   select(patient, enrol_d, born, sex, art_start_date, age_at_art_start, risk, naive_y)
 
 tblNAIVE <- tblBAS %>% 
-  filter(naive_y %in% c(1,9),
-         art_start_date >= enrol_d - 60) %>% 
+  filter(naive_y %in% c(1,9,NA),
+         art_start_date >= enrol_d) %>% 
   select(patient) 
 
 ## CD4 Lab ##
@@ -44,9 +44,13 @@ tblLAB_CD4 <- read.csv("data_raw/RSA/tblLAB_CD4.csv") %>%
 
 ## RNA Lab ##
 
-tblLAB_RNA <- read.csv("data_raw/RSA/tblLAB_RNA.csv")%>% 
-  mutate(rna = case_when(rna_v < 0 ~ rna_l,
-                         TRUE ~ rna_v)) %>% 
+tblLAB_RNA <- read.csv("data_raw/RSA/tblLAB_RNA.csv") %>% 
+  rowwise() %>% 
+  mutate(rna = case_when(
+    rna_v < 0 ~ runif(1, 0, abs(rna_v)),
+    TRUE ~ rna_v
+  )) %>% 
+  ungroup() %>% 
   mutate(date_rna = as.Date(rna_d, format = "%Y-%m-%d")) %>% 
   select(patient, date_rna, rna)
 
@@ -262,7 +266,7 @@ treatment_art <- treatment_art %>%
       TRUE ~ treatment,
     ),
     regimen = case_when(treatment == "TDF + 3TC/FTC + EFV/NVP" ~ "NNRTI-based",
-                        treatment %in% c("TDF + 3TC/FTC + DTG", "AZT + 3TC/FTC + LPV/r") ~ "InSTI-based",
+                        treatment %in% c("TDF + 3TC/FTC + DTG", "AZT + 3TC/FTC + LPV/r") ~ "INSTI-based",
                         TRUE ~ NA)
   )
 
@@ -334,7 +338,7 @@ saveRDS(df_art, "data_clean/rsa/art_rsa.rds")
 
 #### Lab data ------------------------------------------------------------------
 
-## CD4 ##
+## cd4 ##
 
 lab_cd4 <- tblLAB_CD4 %>% 
   filter(patient %in% df_art$id) %>% 
@@ -343,13 +347,13 @@ lab_cd4 <- tblLAB_CD4 %>%
   arrange(patient, date_cd4) %>% 
   group_by(patient) %>% 
   mutate(timepoint = row_number(),
-         time_diff = date_cd4 - art_start_date) %>% 
+         time_diff = as.numeric(date_cd4 - art_start_date, units = "days")) %>% 
   ungroup() %>% 
   rename(id = patient)
 
 saveRDS(lab_cd4, "data_clean/rsa/cd4_rsa.rds")
   
-## RNA ##
+## rna ##
 
 lab_rna <- tblLAB_RNA %>%
   filter(patient %in% df_art$id) %>% 
@@ -357,7 +361,7 @@ lab_rna <- tblLAB_RNA %>%
   arrange(patient, date_rna) %>%
   group_by(patient) %>% 
   mutate(timepoint = row_number(),
-         time_diff = date_rna - art_start_date) %>% 
+    time_diff = as.numeric(date_rna - art_start_date, units = "days")) %>% 
   ungroup() %>% 
   rename(id = patient)
   

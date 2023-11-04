@@ -13,208 +13,100 @@ pacman:: p_load(
   survminer,
   gridExtra,
   Epi,
-  cmprsk
+  cmprsk,
+  wesanderson,
+  ggsurvfit
 )
 
 ##### data import/preprocessing ----
 
-kaplan_ch <- readRDS("data_clean/art_ch.rds") %>% 
-  mutate(persontime_years = case_when(
-           case_incident_2m == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
-           case_incident_2m == 0 ~ last_persontime/360
-         )
-  ) %>% 
+kaplan <- readRDS("data_clean/art.rds") %>% 
+  mutate(incident_tb = as.numeric(as.character(incident_tb)),
+         persontime_years = case_when(
+           incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
+           incident_tb == 0 ~ last_persontime/360),
+         persontime_days = case_when(
+           incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")),
+           incident_tb == 0 ~ last_persontime),
+         persontime_death_days = case_when(
+           !is.na(exitdate) ~ as.numeric(difftime(exitdate, art_start_date, units = "days")),
+           is.na(exitdate) ~ last_persontime)) %>% 
+  dplyr::select(id, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, persontime_days, persontime_death_days, cd4_group, exitdate, last_fup_date, rna_group) %>% 
   filter(persontime_years > 0) %>% 
-  dplyr::select(id, art_start_date, case_incident_2m, date_tb, cohort, persontime_years, exitdate, exit_why, last_fup_date) %>% 
-  mutate(event_type = case_when(
-    case_incident_2m == 1 ~ 1,
+  mutate(event_type = as.factor(case_when(
+    incident_tb == 1 ~ 1,
     !is.na(exitdate) ~ 2,
-    TRUE ~0 # Loss to follow-up isnt considered a competing risk
-  ))
+    TRUE ~ 0 # Loss to follow-up isnt considered a competing risk
+  )))
 
-kaplan_test <- kaplan_ch %>% 
-  mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA")))
+#### Kaplan Meier model (excluding competing risk [death]) ---------------------
 
-kaplan_sa <- #...
-  
-kaplan <- kaplan_test #... #join them together 
+p <- survfit2(Surv(persontime_days, incident_tb) ~ cohort, data = kaplan) |>
+  ggsurvfit(linewidth = 1) +
+  add_confidence_interval() +
+  add_quantile(y_value = 0.6, color = "gray50", linewidth = 0.75) +
+  theme_bw()+
+  theme(legend.position = "none") +
+  labs(x = "Days after ART start",
+       y = "TB-free survival") +
+  scale_x_continuous(expand = c(0,0))
 
-#### Kaplan Meier model (inc. results/plotting) ----
+print(p)
 
-# Create a survival object with your time and event variables
-km.surv_obj <- Surv(kaplan$persontime_years, kaplan$case_incident_2m)
+p_death <- survfit2(Surv(persontime_death_days, incident_tb) ~ cohort, data = kaplan) |>
+  ggsurvfit(linewidth = 1) +
+  add_confidence_interval() +
+  theme_bw()+
+  theme(legend.position = "none") +
+  labs(x = "Days after ART start",
+       y = "survival") +
+  scale_x_continuous(expand = c(0,0))
 
-# Use the survfit() function to calculate survival probabilities
-km.fit <- survfit(km.surv_obj ~ kaplan$cohort)  
+print(p_death)
 
-# Generate Kaplan-Meier plot
-kaplan_plot <- ggsurvplot(
-  km.fit, 
-  data = kaplan, 
-  pval = TRUE, 
-  xlab = "Time after starting ART in years",
-  ylab = "TB-free survival",
-  risk.table = TRUE,
+########### Aalen-Johansen model (including competing risk [death]) ------------
+
+## Method 1 ##
+
+library(cmprsk)
+
+print(cmprisk <- cuminc(ftime = kaplan$persontime_years, 
+       fstatus = kaplan$event_type, 
+       group = kaplan$cohort,
+       cencode=0))
+
+plot(cmprisk)
+
+ggcompetingrisks(
+  cmprisk,
+  gnames = NULL,
+  gsep = " ",
+  multiple_panels = TRUE,
+  ggtheme = theme_minimal(),
+  coef = 1.96,
   conf.int = TRUE,
-  palette = c("#FFA07A", "#B0C4DE"),
-  legend.labs = 
-    c("Switzerland", "South Africa")) 
+) +
+  labs(title = NULL) 
 
-print(kaplan_plot)
+## Method 2 ## <-- graphics easier to modify here 
 
-# Create a zoomed in plot
-zoom_plot <- kaplan_plot$plot + 
-  coord_cartesian(ylim = c(0.95, 1)) +
-  labs(y = "TB-free survival") +
-  theme_bw()
+plot_aj <- survfit2(Surv(persontime_years, incident_tb, type = "mstate") ~ cohort, data = kaplan) |>
+  ggcuminc(linewidth = 0.5) +
+  add_confidence_interval() +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x = "Years after ART start",
+       y = "Cumulative incidence of TB-Incidence (%)") +
+  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  # 'pretty' generates nice breaks for integers
+  scale_y_continuous(expand = c(0,0), labels = function(y) paste0(y * 100)) +  # multiply by 100 for percentages
+  theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0)))  # Optional: adjust the margin if needed
 
-print(zoom_plot)
+plot_aj
 
-ggsave(filename = "results/km_zoom.png", plot = zoom_plot, width = 10, height = 8, dpi = 300)
+ggsave(plot = plot_aj, filename = "results/incidence/incidence_aj.png", 
+       width = 16, height = 11, units = "cm")
 
-#### log-rank test ----
+#'Caption: 
 
-# Run the log-rank test
-log_rank_test <- survdiff(km.surv_obj ~ kaplan$cohort)  
-
-# Print the results
-print(log_rank_test)
-
-#p<.05 --> significant differents between the two cohorts. 
-
-#### Kaplan Meier (switzerland only) ----
-
-# Create a survival object with your time and event variables
-km.surv_objCH <- Surv(kaplan_ch$persontime_years, kaplan_ch$case_incident_2m)
-
-# Use the survfit() function to calculate survival probabilities
-km.fitCH <- survfit(km.surv_objCH ~ 1)  
-
-# Generate Kaplan-Meier plot
-kaplan_plotCH <- ggsurvplot(
-  km.fitCH, 
-  data = kaplan_ch, 
-  pval = TRUE, 
-  xlab = "Time after starting ART in years",
-  ylab = "TB-free survival",
-  risk.table = TRUE,
-  conf.int = TRUE,
-  palette = c("#FFA07A", "#B0C4DE"),
-  legend.labs = 
-    c("Switzerland")) 
-
-# Create a zoomed in plot
-zoom_plotCH <- kaplan_plotCH$plot + 
-  coord_cartesian(ylim = c(0.995, 1)) +
-  labs(y = "TB-free survival") +
-  theme_bw() +
-  scale_x_continuous(expand = c(0,0))+
-  scale_y_continuous(expand = c(0,0))
-
-print(kaplan_plotCH)
-print(zoom_plotCH)
-
-ggsave(filename = "results/km_CH.png", plot = zoom_plotCH, width = 10, height = 8, dpi = 300)
-
-#### Aalen Johansen Model ----
-library(knitr)
-library(dplyr)
-library(survival)
-library(ggplot2)
-library(tibble)
-
-
-# Create the multi-state survival object
-aj_fit <- Surv(kaplan$persontime_years, kaplan$event_type, type = "mstate")
-
-# Fit the survival curves with cohort as a grouping variable
-fit <- survfit(aj_fit ~ kaplan$cohort)
-
-# Define the colors and line types
-cols <- c("red", "blue")   # Assuming you have two cohorts, adjust if more
-lty <- c(1, 2)             # Solid line for the first cohort and dashed for the second
-
-# Plot the CIF for event 1
-plotCIF(fit, event = 1, 
-        ylim = c(0.01,0), 
-        col = cols, 
-        lty = lty,
-        xlab = "Years",
-        ylab = "TB-free survival",
-        yaxt = "n",
-        main = "Aalen Johansen estimator")
-
-# Add a new y-axis with transformed labels
-axis(2, at = seq(0, 0.01, by = 0.005), 
-     labels = formatC(1 - seq(0, 0.01, by = 0.005), digits = 3))
-
-# Add legend
-legend("topright", legend = levels(kaplan$cohort), col = cols, lty = lty)
-
-AJ.both = recordPlot()
-
-png(filename = "results/incidence/AJ.both.png", width = 800, height = 600)
-replayPlot(AJ.both)
-dev.off()
-
-#### Aalen Johansen Model (switzerland only) ----
-
-#prepare the KM estimates
-times_km <- km.fitCH$time
-surv_km <- km.fitCH$surv
-
-#AJ 
-fit.ch <- survfit(aj_fit ~ 1)
-
-# Plot the 1 - CIF
-plotCIF(fit.ch, 
-        lwd = 1,
-        event = 1, 
-        ylim = c(0.005, 0), 
-        xlim = c(0, 12),
-        xlab = "Years",
-        ylab = "TB-free survival",
-        yaxt = "n",
-        main = "Aalen Johansen estimator vs. Kaplan Meier estimator")
-
-# Add a new y-axis with transformed labels
-axis(2, at = seq(0, 0.005, by = 0.001), 
-     labels = formatC(1 - seq(0, 0.005, by = 0.001), digits = 3))
-
-lines(times_km, 1 - surv_km, col = "blue", lty = 2, lwd = 1) ## add KM line
-
-legend("topright",           # Position of legend. Adjust as needed.
-       legend = c("Aalen Johansen", "Kaplan Meier"),   # Labels
-       lty = c(1, 2),        # Line types for AJ and KM
-       col = c("black", "blue"), # Colors for AJ and KM
-       lwd = 2,              # Line width
-       cex = 0.8)           # Adjust size as needed
-
-AJ.ch = recordPlot()
-png(filename = "results/incidence/AJ.ch.png", width = 750, height = 500)
-replayPlot(AJ.ch)
-dev.off()
-
-## Gray's test
-
-gray.result <- cuminc(ftime = kaplan$persontime_years, 
-                      fstatus = kaplan$event_type, 
-                      group = kaplan$cohort,
-                      cencode = 0)
-
-## Alternative Plot for Aalen Johansen with both states included (could also be combinded with both cohorts)
-
-install.packages("mstate")
-library(mstate)
-
-# Compute CIF
-cif <- Cuminc(time = kaplan$persontime_years, 
-              status = kaplan$event_type) 
-
-theme_set(theme_bw(base_size = 8))
-
-Aalen2states <- plot(cif, use.ggplot = TRUE,
-     conf.int = 0.95)
-
-
-
+#' The cumulative incidence rates for time to first tuberculosis incidence after ART initiation 
+#' were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk.

@@ -10,78 +10,62 @@ pacman:: p_load(
   ggplot2, # for plotting
   haven,
   epitools,
-  sjPlot
+  sjPlot,
+  gridExtra,
+  ggpubr
   )
 
-##### data import/ prep ----
-#SHCS
+#### Data prep -----------------------------------------------------------------
+
 custom_breaks <- c(16, 24, 34, 44, 100)
 
-ch <- readRDS("data_clean/art_ch.rds") 
-  mutate(agegroup = cut(age_at_ART_start, breaks = custom_breaks, include.lowest = TRUE),
+df <- readRDS("data_clean/art.rds") %>% 
+  mutate(incident_tb = as.numeric(as.character(incident_tb)),
+    agegroup = cut(age_at_art_start, breaks = custom_breaks, include.lowest = TRUE),
          agegroup = as.factor(agegroup),
-         incidence = case_incident_2m,
-         baselineCD4 = as.factor(cd4_group),
-         baselineRNA = as.factor(rna_group),
-         born = as.factor(region_born),
          persontime_years = case_when(
-           case_incident_2m == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
-           case_incident_2m == 0 ~ last_persontime/360
-         )
-         ) %>% 
-  filter(persontime_years > 0) %>% 
-  dplyr::select(id, incidence, sex, cohort, born, agegroup, baselineCD4, baselineRNA, persontime_years, date_tb, art_start_date)
-
-#rate 
-pois_ch <- ch %>% 
-  summarise(tb_incidence = sum(incidence == 1), 
-            person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95))
-
-#Western Cape
-
-#sa <- readRDS("data_clean/art_sa")
-
-##### preprocessing ----
-
-poisson_test <- ch %>% 
-  mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA")))
-
-poisson_sa <- #...
-
+           incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
+           incident_tb == 0 ~ last_persontime/360)) %>% 
+  dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, cd4_group, rna_group) %>% 
+  filter(persontime_years > 0) 
   
-## Complete dataset
-  
-poisson <- poisson_test #... #join them together 
+#### Model ---------------------------------------------------------------------
 
-##### model ----
+### Poisson ###
 
-### regression model
+## manual calculation ##
+df_manual <- df %>% 
+  group_by(cohort) %>% 
+  summarise(sum_incident_tb = sum(incident_tb == 1), 
+            sum_person_years = sum(persontime_years)/1000) %>% 
+  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95),
+         rna_group = "Overall",
+         cd4_group = "Overall")
 
-model_pois <- glm(incidence ~ cohort, offset=log(persontime_years), family="poisson", data=poisson)
-# Run a Poisson regression model with 'cohort' as the predictor and 'case_incident_2m' as the outcome. The log of 'person_time_years' is used as an offset.
+print(irr <- df_manual$pois$rate[df_manual$cohort == "RSA"] / df_manual$pois$rate[df_manual$cohort == "CH"])
+
+## fitting poisson model ##
+m_pois <- glm(incident_tb ~ cohort, offset=log(persontime_years), family="poisson", data=df)
 
 # Calculate exponentiated coefficients (IRR) along with CI
-exp(coef(summary(model_pois)))
+exp(coef(summary(m_pois)))
 
 # CI
-exp(confint(model_pois))
+exp(confint(m_pois))
 
-#double checking manually calculating it
+#### Assumptions ---------------------------------------------------------------
 
-poisson_df <- poisson %>% 
-  group_by(cohort) %>% 
-  summarise(tb_incidence = sum(incidence == 1), 
-            person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95)) 
+#' checking for overdispersion - the Poisson model assumes that the mean and variance of the outcome are equal. 
+#' If the variance is greater than the mean, the data are overdispersed.
 
-irr <- poisson_df$pois$rate[poisson_df$cohort == "SA"] / poisson_df$pois$rate[poisson_df$cohort == "CH"]
+disp_test <- dispersiontest(m_pois, trafo=1)  # 'trafo = 1' for log-transformed data
+print(disp_test)
 
-print(irr)
+#### Plots ---------------------------------------------------------------------
 
-##### main plot ----
+###### IRR ######
 
-plot_IRR <- plot_model(model_pois,
+plot_IRR <- plot_model(m_pois,
                        colors = "blue",
                        vline.color = "red",
                        show.values = TRUE, 
@@ -89,81 +73,98 @@ plot_IRR <- plot_model(model_pois,
   theme_bw() +
   theme(plot.title = element_blank())
 
+plot_IRR
 
 ggsave(filename = "results/incidence/incidence_IRR.png", plot = plot_IRR, width = 10, height = 8, dpi = 300)
 
-#### assumption ----
+###### Incidence per baseline group ######
 
-## checking for overdispersion - the Poisson model assumes that the mean and variance of the outcome are equal. If the variance is greater than the mean, the data are overdispersed.
-disp_test <- dispersiontest(model_pois, trafo=1)  # 'trafo = 1' for log-transformed data
-print(disp_test)
+## RNA ##
 
-#### secondary plots ----
+df_rna <- df %>% 
+  group_by(cohort, rna_group) %>% 
+  summarise(sum_incident_tb = sum(incident_tb == 1), 
+            sum_person_years = sum(persontime_years)/1000) %>% 
+  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95)) %>% 
+  filter(!is.na(rna_group),
+         rna_group != "NA")
 
-# Overall TB incidence rate
-incidence.total <- ch %>% 
-  summarise(tb_incidence = sum(incidence == 1), 
-            person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95)) 
+df_combined <- bind_rows(df_rna, df_manual)
 
-# Incidence calculations by each rna_group
-incidence_by_rna <- ch %>% 
-  group_by(baselineRNA) %>%
-  summarise(tb_incidence = sum(incidence == 1), 
-            person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95))
+plot_rna <- df_combined %>% 
+  ggplot(aes(x = rna_group, y = pois$rate, group = interaction(cohort, rna_group))) +
+  geom_point(aes(color = cohort), position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
+                position = position_dodge(width = 0.5), width = 0.2) +
+  labs(x = "Baseline HIV RNA viral load", y = "Incident TB rate per 1,000 person-years") +
+  scale_y_continuous() +
+  theme_bw() +
+  theme(legend.position = "none")  # This line removes the legend
 
-# Incidence calculations by each cd4_group
-incidence_by_cd4 <- ch %>% 
-  group_by(baselineCD4) %>%
-  summarise(tb_incidence = sum(incidence == 1), 
-            person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = tb_incidence, pt = person_years, conf.level = 0.95))
+print(plot_rna)
 
-#cd4plot
+ggsave(plot = plot_rna, filename = "results/incidence/incidence_rna.png", 
+       width = 16, height = 11, units = "cm")
 
-incidence_cd4 <- incidence_by_cd4 %>% 
-  ggplot() +
-  geom_point(aes(x = baselineCD4, y = pois$rate)) +
-  geom_errorbar(aes(x= baselineCD4, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
-  geom_point(aes(x = "overall", y=incidence.total$pois$rate)) +
-  geom_errorbar(aes(x= "overall", ymin = incidence.total$pois$lower, 
-                    ymax = incidence.total$pois$upper), width = 0.2) +
-  labs(x= "Baseline CD4 cell count", y = "TB incidence per 1,000 person-years") +
-  scale_y_continuous(limits = c(0,3), expand = c(0,0))+
-  theme_bw()
+## CD4 ##
 
-incidence_cd4
+df_cd4 <- df %>% 
+  group_by(cohort, cd4_group) %>% 
+  summarise(sum_incident_tb = sum(incident_tb == 1), 
+            sum_person_years = sum(persontime_years)/1000) %>% 
+  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95)) %>% 
+  filter(!is.na(cd4_group),
+         cd4_group != "NA")
 
-ggsave(plot = incidence_cd4, filename = "results/incidence/incidence_cd4.png", width = width_descr, height = height_descr)
+df_combined <- bind_rows(df_cd4, df_manual)
 
-#rnaplot
+plot_cd4 <- df_combined %>% 
+  ggplot(aes(x = cd4_group, y = pois$rate, group = interaction(cohort, cd4_group))) +
+  geom_point(aes(color = cohort), position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
+                position = position_dodge(width = 0.5), width = 0.2) +
+  labs(x = "Baseline CD4 count", y = "Incident TB rate per 1,000 person-years") +
+  scale_y_continuous() +
+  theme_bw() +
+  theme(legend.position = "none")
 
-incidence_rna <- incidence_by_rna %>% 
-  ggplot() +
-  geom_point(aes(x = baselineRNA, y = pois$rate)) +
-  geom_errorbar(aes(x= baselineRNA, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
-  geom_point(aes(x = "overall", y=incidence.total$pois$rate)) +
-  geom_errorbar(aes(x= "overall", ymin = incidence.total$pois$lower, 
-                    ymax = incidence.total$pois$upper), width = 0.2) +
-  labs(x= "Baseline HIV RNA viral load", y = "") +
-  scale_y_continuous(limits = c(0,3), expand = c(0,0))+
-  theme_bw()
+print(plot_cd4)
 
-incidence_rna
+ggsave(plot = plot_cd4, filename = "results/incidence/incidence_cd4.png", 
+       width = 16, height = 11, units = "cm")
 
-ggsave(plot = incidence_rna, filename = "results/incidence/incidence_rna.png", width = width_descr, height = height_descr)
+## Combined ##
 
-incidence.both <- grid.arrange(incidence_cd4, incidence_rna, ncol = 2)
+plot_rna <- plot_rna +
+  ylab("")
 
-ggsave(plot = incidence.both, file = "results/incidence/incidence_both.png", width = width_descr*1.5, height = height_descr)
+plot_cd4 <- plot_cd4 +
+  ylab("")
 
-#time to tb
+# Create a combined plot with a single y-axis label
+plot_both <- ggarrange(plot_cd4, plot_rna, # Add labels to identify the plots
+                       ncol = 1, nrow = 2, # Arrange the plots in 2 rows
+                       common.legend = TRUE, # Use a common legend for both plots
+                       legend = "right") # Place the legend at the bottom
+
+# Add a common y-axis label
+plot_both <- annotate_figure(plot_both, 
+                             left = text_grob("Incident TB rate per 1000 person-years", 
+                                              rot = 90, vjust = 1))
+
+plot_both
+
+# Save the combined plot
+ggsave(plot = plot_both, file = "results/incidence/incidence_both.png", 
+       width = 16, height = 11, units = "cm") 
+
+#### Time to TB ----------------------------------------------------------------
+
 time_to_tb <- ch %>% 
   filter(incidence ==1) %>% 
   mutate(time_to_tb = as.numeric(date_tb - (art_start_date))) %>% 
   summarise(median = median(time_to_tb, na.rm = TRUE),
             "25%" = quantile(time_to_tb, 0.25, na.rm = TRUE),
             "75%" = quantile(time_to_tb, 0.75, na.rm = TRUE))
-time_to_tb
 
+time_to_tb
