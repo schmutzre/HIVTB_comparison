@@ -377,7 +377,7 @@ filteredBOTH.tbtreatment <- filteredBOTH.tbtreatment %>%
            as.factor(case_when(regimen_tb %in% c(tableTB[20,1], tableTB[13,1],tableTB[12,1],tableTB[10,1],tableTB[9,1],tableTB[7,1]) ~ "Standard",
                                         regimen_tb %in% c(tableTB[19,1],tableTB[15,1],tableTB[14,1],tableTB[11,1],tableTB[10,1],tableTB[8,1],tableTB[4,1]) ~ "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone",
                                         regimen_tb %in% c(tableTB[18,1],tableTB[17,1],tableTB[16,1],tableTB[6,1],tableTB[5,1],tableTB[4,1],tableTB[3,1],tableTB[1,1]) ~ "Rifabutin-based regimen, plus at least HZE +/- another drug",
-                                        TRUE ~ NA)))
+                                        TRUE ~ regimen_tb)))
 
 checkingIDs <- complete_ch %>% 
   filter(id %in% c(16388, 91050)) %>% 

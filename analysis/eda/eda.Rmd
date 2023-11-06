@@ -1,10 +1,15 @@
 ---
 title: "EDA"
 author: "Remo Schmutz"
-date: "2023-10-28"
+date: "2023-11-06"
 output:
-  html_document: default
-  fig_caption: true
+  html_document: 
+    fig_caption: true
+    code_folding: hide
+    highlight: haddock
+    theme: flatly
+    toc: yes
+    toc_float: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -14,6 +19,8 @@ library(table1)
 library(tidyverse)
 library(knitr)
 library(png)
+library(janitor)
+library(flextable)
 ```
 
 # Table 1
@@ -21,6 +28,8 @@ library(png)
 ```{r, include=FALSE}
 
 complete <-  readRDS("../../data_clean/art.rds")
+ch <- readRDS("../../data_clean/ch/art_ch.rds")
+rsa <- readRDS("../../data_clean/rsa/art_rsa.rds")
 
 # Columns #
 
@@ -79,11 +88,29 @@ table1(~ age_at_art_start + sex + site_tb + risk + cd4_baseline + rna_baseline +
        caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) or a recent history of TB (diagnosis 2-12 months before ART start) with patients with no history of TB.")
 ```
 
+### Top 5 most used ART treatments per cohort
+
+```{r echo = FALSE}
+### TOP 5 ART treatments
+freq_table <- tabyl(ch$treatment, show_na = FALSE)
+freq_table2 <- tabyl(rsa$treatment, show_na = FALSE)
+
+top_ch <- as.data.frame(freq_table[order(-freq_table$percent), ][1:5, ]) %>% 
+  mutate(percent = round(percent*100, 0))
+
+top_rsa <- as.data.frame(freq_table2[order(-freq_table2$percent), ][1:5, ]) %>% 
+  mutate(percent = round(percent*100, 0))
+
+kable(top_ch)
+kable(top_rsa)
+```
+
 # Table 2
 
 ```{r, include=FALSE}
 tb <- readRDS("../../data_clean/tb.rds")
-
+tb_ch <- readRDS("../../data_clean/ch/tb_ch.rds")
+tb_rsa <- readRDS("../../data_clean/rsa/tb_rsa.rds")
 # Age #
 
 custom_breaks <- c(16, 24, 34, 44, 100)
@@ -109,10 +136,14 @@ label(tb$sex) <- "Sex"
 
 # Birth country #
 
-label(tb$region) <- "Birth country"
 tb$region <- 
   factor(tb$region, 
          levels=c("Sub-Saharan Africa","Europe","North Africa" , "North America", "South/Latin America", "Oceania", "Asia"))
+label(tb$region) <- "Birth country"
+
+# TB regimen #
+
+label(tb$regimen_tb_group) <- "TB regimen"
 
 # Site of TB #
 
@@ -134,8 +165,62 @@ table1(~ agegroups + sex + region + site_tb + regimen_tb_group + tb_diag_cd4 + t
        caption = "HIV-positive patients with TB diagnosed between 2010 and 2022.")
 ```
 
-<br><br> <!-- This adds two line breaks for spacing -->
+## TB treatment separated by resistancy profile
 
-# TB Incidence
+### SHCS (0: no resistancy, 1: any resistancy)
 
-![Hallo zusammen](images/incidence_rna-01.png){width="2500"} <br><br> ![](images/incidence_cd4-04.png){width="2500"} <br><br> ![The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk.](images/incidence_aj.png){width="1500"} <br><br> ![](images/cd4.png){width="2500"} <br><br> ![](images/rna.png){width="2500"}
+```{r echo=FALSE, fig.align='center'}
+### Treatments / TB resistance
+result1 <- tb_ch %>%
+  tabyl(regimen_tb_group, resistance_tb_any) 
+
+kable(result1)
+```
+
+### Khayelitsha (0: no resistancy, 1: any resistancy)
+
+```{r echo=FALSE, fig.align='center'}
+result2 <- tb_rsa %>%
+  tabyl(regimen_tb_group, resistance_tb_any) 
+
+kable(result2)
+```
+
+# Figures
+
+## TB Incidence per baseline groups
+
+![Figure 1: Point-wise incidence estimate from a poisson model stratified by baseline viral load for SHCS (red) and Khayelitsha (blue).](images/incidence_rna-02.png)
+
+![Figure 2: Point-wise incidence estimate from a poisson model stratified by baseline CD4 count for SHCS (red) and Khayelitsha (blue).](images/incidence_cd4-05.png)
+
+## Survival analysis
+
+![Figure 3: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk.](images/incidence_aj-01.png)Figure 3: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, SHCS (red) and Khayelitsha (blue ).
+
+## Immunological recovery slopes
+
+![Figure 4: The model was fitted using a Generalized Additive Model (GAM) with a cubic spline smoothing term to capture non-linear trends.](images/cd4-01.png)
+
+![Figure 5: The model was fitted using a Generalized Additive Model (GAM) with a cubic spline smoothing term to capture non-linear trends. Note, uncertainty about Art-naive status in Khayelitsha could play a role in low viral load at ART start.](images/rna-01.png)
+
+## Follow-up
+
+```{r}
+rsa <- rsa %>% 
+  mutate(exit = case_when(!is.na(exitdate) ~ 1,
+                          TRUE ~ 0))
+
+ggplot(data = rsa, aes(x = last_persontime, fill = factor(exit))) +
+  geom_histogram(binwidth = 7, color = "black", alpha = 0.7) +
+  labs(
+    x = "last_persontime",
+    y = "Frequency",
+    fill = "exit"
+  )+
+  scale_x_continuous(limits = c(0,360), expand = c(0,0)) +
+  scale_y_continuous(limits = c(0,1750), expand = c(0,0)) +
+  theme_bw()
+```
+
+Figure 6: A Histogram of the distribution of the variable 'last_persontime' in Khayelitsha. The variable is defined as time until death or time until last follow-up date after ART start if the patient is still alive according to the records.

@@ -14,24 +14,25 @@ tblART <- read.csv("data_raw/RSA/tblART.csv") %>%
 
 ## Base table ##
 
-tblBAS <- read.csv("data_raw/RSA/tblBAS.csv") %>% 
-  mutate(across(c(birth_d, enrol_d, recart_d), ~na_if(.x, "")),
-         across(c(birth_d, enrol_d, recart_d,), ~as.Date(.x, format = "%Y-%m-%d")),
-         age_at_art_start = interval(birth_d, recart_d) %/% years(1),
+tblBAS <- read.csv("data_raw/RSA/tblBAS_incl_naive_imp.csv")  %>% 
+  mutate(across(c(birth_d, ENROL_D, RECART_D), ~na_if(.x, "")),
+         across(c(birth_d, ENROL_D, RECART_D), ~as.Date(.x, format = "%Y-%m-%d")),
+         age_at_art_start = interval(birth_d, RECART_D) %/% years(1),
          sex = as.factor(case_when(sex == 1 ~ "Male",
                          sex == 2 ~ "Female",
                          TRUE ~ NA))) %>% 
-  filter(!is.na(recart_d)) %>% 
+  filter(!is.na(RECART_D)) %>% 
   rename(born = birth_d,
          risk = mode, 
-         art_start_date = recart_d,
-         risk = mode) %>% 
+         art_start_date = RECART_D,
+         risk = mode,
+         patient = PATIENT,
+         enrol_d = ENROL_D) %>% 
   distinct(patient, .keep_all = TRUE) %>% 
-  select(patient, enrol_d, born, sex, art_start_date, age_at_art_start, risk, naive_y)
+  select(patient, enrol_d, born, sex, art_start_date, age_at_art_start, risk, naive_y, naive_y_imp)
 
 tblNAIVE <- tblBAS %>% 
-  filter(naive_y %in% c(1,9,NA),
-         art_start_date >= enrol_d) %>% 
+  filter(naive_y %in% c(1,NA) & naive_y_imp %in% c(1,NA) & art_start_date >= enrol_d) %>% 
   select(patient) 
 
 ## CD4 Lab ##
@@ -47,7 +48,7 @@ tblLAB_CD4 <- read.csv("data_raw/RSA/tblLAB_CD4.csv") %>%
 tblLAB_RNA <- read.csv("data_raw/RSA/tblLAB_RNA.csv") %>% 
   rowwise() %>% 
   mutate(rna = case_when(
-    rna_v < 0 ~ runif(1, 0, abs(rna_v)),
+    rna_v < 0 ~ round(runif(1, 0, abs(rna_v)),0),
     TRUE ~ rna_v
   )) %>% 
   ungroup() %>% 
@@ -115,18 +116,19 @@ tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>%
 tblVIS <- read.csv("data_raw/RSA/tblVIS.csv") %>% 
   filter(patient %in% tblNAIVE$patient) %>% 
   select(patient, vis_d, who_stage) %>% 
-  left_join(tblBAS %>% select(patient, art_start_date), by = "patient") %>% 
   mutate(vis_d = as.Date(vis_d, format = "%Y-%m-%d"),
          who_stage = as.factor(who_stage)) %>% 
+  left_join(tblBAS %>% select(patient, art_start_date), by = "patient") %>% 
   group_by(patient) %>%
-  mutate(difference = abs(vis_d - art_start_date)) %>%
+  mutate(difference = abs(vis_d - art_start_date),
+         who_stage = case_when(who_stage %in% c(2,3) ~ "2/3",
+                               who_stage == 9 ~ NA,
+                               TRUE ~ who_stage)) %>%
   filter(difference <= 60) %>%
   arrange(patient, difference) %>%
   slice(1) %>%
   ungroup() %>%
   select(patient, who_stage)
-
-#' Code should runs but takes to long for it not to have any values in it
 
 ## CD4 baseline values ##
 

@@ -102,7 +102,7 @@ sd_cd4 <- ggplot(summary_stats_cd4, aes(x = time_diff_midpoint, y = mean)) +
   theme_bw()+   
   geom_hline(yintercept = sqrt(350)) 
   
-se.cd4
+sd_cd4
 
 # rna #
 
