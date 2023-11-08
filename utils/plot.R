@@ -93,23 +93,27 @@ plot_trend.raw.rna <- function(model, data, N = 10000) {
                     uprP = fit + (2 * se.fit),
                     lwrP = fit - (2 * se.fit),
                     uprS = fit + (crit * se.fit),
-                    lwrS = fit - (crit * se.fit))
+                    lwrS = fit - (crit * se.fit)) %>% 
+    mutate(cohort = fct_relevel(cohort, "RSA"))
   
   pred$lwrS_adj <- pmax(pred$lwrS, 0) # lower end of Confidence band shouldnt go below 0 (not possible)
   
   # Plot the trend with ggplot2
   trend.plot <- ggplot(pred, aes(x = time_diff)) +
-    geom_line(data = data, aes(group = factor(id), y = rna_trans), color = "grey", alpha = .2) +
-    geom_ribbon(aes(ymin = lwrS_adj, ymax = uprS), alpha = 0.2, fill = "red") +
-    geom_line(aes(y = fit), color = "red") +
+    geom_line(data = data, aes(group = factor(id), y = log10(rna+1)), color = "lightgrey", alpha = .2) +
+    geom_ribbon(aes(ymin = lwrS_adj, ymax = uprS, fill = cohort), alpha = 0.2) +
+    geom_line(aes(y = fit, color = cohort)) +
     theme_classic()+
     scale_x_continuous(expand = c(0,0))+
     scale_y_continuous(expand = c(0,0)) +
     geom_hline(yintercept = log10(400)) +
     geom_vline(xintercept = 0, linetype = "dotted")+
-    labs(x = "Days since ART start", y = "log10(viral-load)") +
     theme(panel.grid.major = element_blank(), 
-          panel.grid.minor = element_blank())
+          panel.grid.minor = element_blank(),
+          axis.title.x = element_blank(),
+          legend.position = "none") +
+    scale_color_manual(values = wes_palette("Moonrise2")) +
+    scale_fill_manual(values = wes_palette("Moonrise2"))
   
   
   return(trend.plot)
@@ -151,27 +155,31 @@ plot_trend.raw.cd4 <- function(model, data, N = 10000) {
                     uprP = fit + (2 * se.fit),
                     lwrP = fit - (2 * se.fit),
                     uprS = fit + (crit * se.fit),
-                    lwrS = fit - (crit * se.fit))
+                    lwrS = fit - (crit * se.fit)) %>% 
+    mutate(cohort = fct_relevel(cohort, "RSA"))
   
   # Plot the trend with ggplot2
 plot_name <- deparse(substitute(model))
   trend.plot <- ggplot(pred, aes(x = time_diff)) +
-    geom_line(data = data, aes(group = factor(id), y = cd4_trans), color = "grey", alpha = .2) +
-    geom_ribbon(aes(ymin = lwrS, ymax = uprS), alpha = 0.2, fill = "red") +
-    geom_line(aes(y = fit), color = "red") +
+    geom_line(data = data, aes(group = factor(id), y = cd4), color = "lightgrey", alpha = .1) +
+    geom_ribbon(aes(ymin = lwrS, ymax = uprS, fill = cohort), alpha = 0.2) +
+    geom_line(aes(y = fit, color = cohort)) +
     theme_classic()+
     scale_x_continuous(expand = c(0,0))+
     scale_y_continuous(expand = c(0,0)) +
-    geom_hline(yintercept = sqrt(350)) +
+    geom_hline(yintercept = 350) +
     geom_vline(xintercept = 0, linetype = "dotted")+
-    labs(x = "Days since ART start", y = expression(sqrt(CD4))) +
     theme(panel.grid.major = element_blank(), 
-          panel.grid.minor = element_blank())
+          panel.grid.minor = element_blank(),
+          axis.title.x = element_blank(),
+          legend.position = "none") +
+    scale_color_manual(values = wes_palette("Moonrise2")) +
+    scale_fill_manual(values = wes_palette("Moonrise2")) 
   
   return(trend.plot)
 }
 
-plot_pred.cd4 <- function(model, rec_data) {
+plot_pred.cd4 <- function(model, rec_data, i) {
   beta <- coef(model)
   V <- vcov(model)
   
@@ -213,10 +221,10 @@ plot_pred.cd4 <- function(model, rec_data) {
   
   # plot
   p <- ggplot(mapping = aes(time_diff)) +
-    geom_line(data = rec_data, mapping = aes(y = trans.cd4, group = factor(id)), color = "grey", alpha = .2) +
-    geom_line(data = pred_df_sum, mapping = aes(y = mean_pred), color = "blue") + 
-    geom_line(data = pred_df_sum, mapping = aes(y = lower_pred), color = "blue", linetype = "dashed") +
-    geom_line(data = pred_df_sum, mapping = aes(y = upper_pred), color = "blue", linetype = "dashed") +
+    geom_line(data = rec_data, mapping = aes(y = cd4_trans, group = factor(id)), color = "grey", alpha = .2) +
+    geom_line(data = pred_df_sum, mapping = aes(y = mean_pred), color = wes_palette("Moonrise2")[i], linewidth = 1.5) + 
+    geom_line(data = pred_df_sum, mapping = aes(y = lower_pred), color = wes_palette("Moonrise2")[i], linetype = "dashed") +
+    geom_line(data = pred_df_sum, mapping = aes(y = upper_pred), color = wes_palette("Moonrise2")[i], linetype = "dashed") +
     geom_vline(mapping = aes(xintercept = 0), linetype = "dotted") +
     scale_x_continuous(expand = c(0,0)) +
     scale_y_continuous(expand = c(0,0)) +

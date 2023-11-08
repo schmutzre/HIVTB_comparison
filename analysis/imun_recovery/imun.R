@@ -39,26 +39,44 @@ cd4 <- rbind(cd4_ch %>% select(-timepoint),
     group_30days = as.integer((time_diff %/% 30) + 1),
     cd4_trans = sqrt(cd4))
 
+cd4_npres <- cd4 %>% 
+  filter(presenting_tb == 0)
+
+cd4_pres <- cd4 %>% 
+  filter(presenting_tb == 1)
+
 rna <- rbind(rna_ch %>% select(-timepoint),
              rna_rsa %>% select(-timepoint)) %>% 
   filter(time_diff > -100 & time_diff < 365) %>% 
   mutate(group_30days = as.integer((time_diff %/% 30) + 1),
          rna_trans = log10(rna + 1))
 
+rna_npres <- rna %>% 
+  filter(presenting_tb == 0)
+
+rna_pres <- rna %>% 
+  filter(presenting_tb == 1)
+
 #### models --------------------------------------------------------------------
 
 ### cd4 ###
 
-m.cd4 <- gam(cd4_trans ~ s(time_diff, k = 4, by = cohort), 
-             data = cd4, 
+m.cd4_npres <- gam(cd4 ~ s(time_diff, k = 4, by = cohort), 
+             data = cd4_npres, 
              method = "REML")
 
-lm_cd4 <- lmer(sqrt(cd4) ~ time_diff + (1 | id), data = cd4)
+m.cd4_pres <- gam(cd4 ~ s(time_diff, k = 4, by = cohort), 
+                   data = cd4_pres, 
+                   method = "REML")
 
 ### rna ###
 
-m.rna <- gam(rna_trans ~ s(time_diff, k = 5, by = cohort), 
-             data = rna, 
+m.rna_npres <- gam(rna_trans ~ s(time_diff, k = 4, by = cohort), 
+             data = rna_npres, 
+             method = "REML")
+
+m.rna_pres <- gam(rna_trans ~ s(time_diff, k = 4, by = cohort), 
+             data = rna_pres, 
              method = "REML")
 
 #### data exploration ----------------------------------------------------------
@@ -174,83 +192,136 @@ ggplot(rec.rna, aes(x = time_diff, y = residuals.rna)) +
 
 #### plots ---------------------------------------------------------------------
 
-### raw ###
-
-# cd4 #
-
-cd4_raw <- cd4 %>%
-  ggplot(aes(x = time_diff)) +
-  geom_line(aes(group = factor(id), y = sqrt(cd4)), color = "grey", alpha = .2) +
-  geom_hline(yintercept = sqrt(350)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  theme_bw() +
-  labs(x = "", title = "raw data + GAM") +
-  scale_x_continuous() +
-  scale_y_continuous() +
-  theme(plot.title = element_text(hjust = 0.5))
-
-print(cd4_raw)
-
-# rna #
-
-rna_raw <- rna %>%
-  ggplot(aes(x = time_diff)) +
-  geom_line(aes(group = factor(id), y = log10(rna+1)), color = "grey", alpha = .2) +
-  geom_hline(yintercept = log10(400)) +
-  geom_vline(xintercept = 0, linetype = "dashed")+
-  theme_bw() +
-  labs(x = "Days since ART start", title = "") +
-  scale_x_continuous() +
-  scale_y_continuous() +
-  theme(plot.title = element_text(hjust = 0.5))+
-  facet_wrap(~cohort) 
-
-print(rna_raw)
-
-### fit ###
+#### Confidence intervals + raw  ----
 
 # I calculate the simultaneous CI instead of point-wise https://fromthebottomoftheheap.net/2016/12/15/simultaneous-interval-revisited/
 
-# cd4 #
+## cd4 ##
 
-trend_cd4 <- plot_trend(m.cd4, cd4) +
-  geom_hline(yintercept = sqrt(350)) +
-  geom_vline(xintercept = 0, linetype = "dotted") +
-  labs(x = "Days since ART start", y = expression(sqrt(CD4))) +
-  coord_cartesian(xlim = c(-60, 360), ylim = c(0, 30)) +
+## not presenting
+
+trend_cd4_npres <- plot_trend.raw.cd4(m.cd4_npres, cd4_npres) +
   facet_wrap(~cohort) +
-  theme_minimal()
+  ylab("not presenting with TB")+
+  coord_cartesian(ylim = c(0,2000))
+  
+trend_cd4_npres
+
+## presenting
+
+trend_cd4_pres <- plot_trend.raw.cd4(m.cd4_pres, cd4_pres) +
+  facet_wrap(~cohort) +
+  theme(strip.text.x = element_blank(), strip.background = element_blank())+
+  ylab("presenting with TB") +
+  coord_cartesian(ylim = c(0,2000))
+
+trend_cd4_pres
+
+## combine
+
+trend_cd4 <- ggarrange(trend_cd4_npres, 
+                             trend_cd4_pres, 
+                             ncol = 1) %>% 
+  annotate_figure(bottom = "Days after ART start",
+                  left = "cd4")
 
 trend_cd4
 
-# rna #
+ggsave(plot = trend_cd4, filename = "results/slopes/cd4.png", 
+       width = 16, height = 11, units = "cm")
 
-trend_rna <- plot_trend(m.rna, rna) +
-  geom_hline(yintercept = log10(400)) +
-  geom_vline(xintercept = 0, linetype = "dotted")+
-  labs(x = "Days since ART start", y = "log10(viral-load)") +
-  coord_cartesian(xlim = c(-60, 360), ylim = c(0, 7.5)) +
+# ------------------------- 
+
+## rna ##
+
+## not presenting
+
+trend_rna_npres <- plot_trend.raw.rna(m.rna_npres, rna_npres) +
   facet_wrap(~cohort) +
-  theme_minimal()
+  ylab("not presenting with TB")
+
+trend_rna_npres
+
+## presenting
+
+trend_rna_pres <- plot_trend.raw.rna(m.rna_pres, rna_pres) +
+  facet_wrap(~cohort) +
+  theme(strip.text.x = element_blank(), strip.background = element_blank())+
+  ylab("presenting with TB")
+
+trend_rna_pres
+
+## combine
+
+trend_rna <- ggarrange(trend_rna_npres, 
+                       trend_rna_pres, 
+                       ncol = 1) %>% 
+  annotate_figure(bottom = "Days after ART start",
+                  left = "log10(rna)")
 
 trend_rna
 
-### raw + fit ###
-
-trend.cd4.raw <- plot_trend.raw.cd4(m.cd4, cd4) +
-  facet_wrap(~cohort) 
-  
-trend.cd4.raw
-
-ggsave(plot = trend.cd4.raw, filename = "results/slopes/cd4.png", 
+ggsave(plot = trend_rna, filename = "results/slopes/rna.png", 
        width = 16, height = 11, units = "cm")
 
-trend.rna.raw <- plot_trend.raw.rna(m.rna, rna) +
-  theme_classic() +
-  facet_wrap(~cohort) 
+#### prediction interval ----
 
-trend.rna.raw
-  
-ggsave(plot = trend.rna.raw, filename = "results/slopes/rna.png", 
-       width = 16, height = 11, units = "cm")
+### cd4
 
+## CH non-presenting ##
+
+cd4_npres_ch <- cd4_npres %>% 
+  filter(cohort == "CH")
+
+m.cd4_npres_ch <- gam(cd4_trans ~ s(time_diff, k = 3), 
+             data = cd4_npres_ch, 
+             method = "REML")
+
+pred_cd4_npres_ch <- plot_pred.cd4(m.cd4_npres_ch, cd4_npres_ch, 2) 
+pred_cd4_npres_ch
+
+## CH presenting ##
+
+cd4_pres_ch <- cd4_pres %>% 
+  filter(cohort == "CH")
+
+m.cd4_pres_ch <- gam(cd4_trans ~ s(time_diff, k = 3), 
+                      data = cd4_pres_ch, 
+                      method = "REML")
+
+pred_cd4_pres_ch <- plot_pred.cd4(m.cd4_pres_ch, cd4_pres_ch, 2) 
+pred_cd4_pres_ch
+
+## RSA non-presenting ##
+
+cd4_npres_rsa <- cd4_npres %>% 
+  filter(cohort == "RSA")
+
+m.cd4_npres_rsa <- gam(cd4_trans ~ s(time_diff, k = 3), 
+                      data = cd4_npres_rsa, 
+                      method = "REML")
+
+pred_cd4_npres_rsa <- plot_pred.cd4(m.cd4_npres_rsa, cd4_npres_rsa, 2) 
+pred_cd4_npres_rsa
+
+## RSA presenting ##
+
+cd4_pres_rsa <- cd4_pres %>% 
+  filter(cohort == "RSA")
+
+m.cd4_pres_rsa <- gam(cd4_trans ~ s(time_diff, k = 3), 
+                     data = cd4_pres_rsa, 
+                     method = "REML")
+
+pred_cd4_pres_rsa <- plot_pred.cd4(m.cd4_pres_rsa, cd4_pres_rsa, 2) 
+pred_cd4_pres_rsa
+
+## combine them ##
+
+pred_cd4 <- ggarrange(pred_cd4_npres_rsa, 
+                      pred_cd4_npres_ch, 
+                      pred_cd4_pres_rsa,
+                      pred_cd4_pres_ch, 
+                      ncol = 2) %>% 
+  annotate_figure(bottom = "Days after ART start",
+                  left = expression(sqrt(CD4)))

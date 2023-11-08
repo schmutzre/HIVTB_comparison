@@ -2,6 +2,7 @@
 
 library(dplyr)
 library(lubridate)
+library(janitor)
 
 #### Cleaning the separate data files and preparing to then join them ----------
 
@@ -14,14 +15,13 @@ tblART <- read.csv("data_raw/RSA/tblART.csv") %>%
 
 ## Base table ##
 
-tblBAS <- read.csv("data_raw/RSA/tblBAS_incl_naive_imp.csv")  %>% 
+tblBAS <- read.csv("data_raw/RSA/tblBAS_incl_naive_imp.csv") %>% 
   mutate(across(c(birth_d, ENROL_D, RECART_D), ~na_if(.x, "")),
          across(c(birth_d, ENROL_D, RECART_D), ~as.Date(.x, format = "%Y-%m-%d")),
          age_at_art_start = interval(birth_d, RECART_D) %/% years(1),
          sex = as.factor(case_when(sex == 1 ~ "Male",
                          sex == 2 ~ "Female",
                          TRUE ~ NA))) %>% 
-  filter(!is.na(RECART_D)) %>% 
   rename(born = birth_d,
          risk = mode, 
          art_start_date = RECART_D,
@@ -64,6 +64,19 @@ tblLTFU <- read.csv("data_raw/RSA/tblLTFU.csv") %>%
   mutate(across(c(last_fup_date, exitdate), ~na_if(.x, "")),
          across(c(last_fup_date, exitdate), ~as.Date(.x, format = "%Y-%m-%d")))
 
+last_visit <- read.csv("data_raw/RSA/tblVIS.csv") %>% 
+  select(patient, vis_d) %>% 
+  mutate(vis_d = as.Date(vis_d, format = "%Y-%m-%d")) %>% 
+  group_by(patient) %>% 
+  arrange(desc(vis_d)) %>% 
+  slice(1) %>%
+  ungroup()
+
+tblLTFU2 <- tblLTFU %>% 
+  left_join(last_visit, by = "patient") %>% 
+  filter(vis_d > last_fup_date)
+#' the variable last_fup_date is OK
+
 ## TB resistance ##
 
 tbltb_res <- read.csv("data_raw/RSA/tbltb_res.csv") %>%
@@ -100,7 +113,7 @@ tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>%
   mutate(across(c(date_tb, site_tb), ~na_if(.x, "")),
          date_tb = as.Date(date_tb, format = "%Y-%m-%d"),
          disease_tb = as.factor(1),
-         site_tb = as.factor(case_when(site_tb == 1 ~ "Pulmonary",
+         site_tb = as.factor(case_when(site_tb %in% c(1,3) ~ "Pulmonary",
                              site_tb == 2 ~ "Extrapulmonary",
                              TRUE ~ NA)),
          regimen_tb = as.factor(case_when(regimen_tb == 1 ~ "2HRZE 4HR",
@@ -124,7 +137,7 @@ tblVIS <- read.csv("data_raw/RSA/tblVIS.csv") %>%
          who_stage = case_when(who_stage %in% c(2,3) ~ "2/3",
                                who_stage == 9 ~ NA,
                                TRUE ~ who_stage)) %>%
-  filter(difference <= 60) %>%
+  filter(difference <= 180) %>%
   arrange(patient, difference) %>%
   slice(1) %>%
   ungroup() %>%
@@ -227,7 +240,7 @@ treatment_art <- tblART %>%
   left_join(tblBAS %>% select(patient, art_start_date), 
             relationship = "many-to-many",
             by = "patient") %>% 
-  filter(abs(art_sd - art_start_date) <= 60) %>% 
+  filter(abs(art_sd - art_start_date) <= 120) %>% 
   left_join(id_to_drug %>% select(drug, art_id), by = c("art_id")) %>% 
   left_join(id_to_drug %>% select(drug, art_combination), by = c("art_combination")) %>% 
   group_by(patient) %>%
@@ -300,9 +313,10 @@ df <- tblBAS %>%
              TRUE ~ 0)),
            last_persontime = as.numeric(case_when(!is.na(exitdate) ~ exitdate - art_start_date,
                                        TRUE ~ last_fup_date - art_start_date))) %>% 
-  select(-enrol_d, -naive_y) %>% 
+  select(-enrol_d) %>% 
   distinct(patient, .keep_all = TRUE) %>% 
-  rename(id = patient)
+  rename(id = patient)  %>% 
+  filter(born < exitdate | is.na(exitdate))
 
 #### Defining study populations ------------------------------------------------
 
@@ -332,9 +346,20 @@ df_art <- df %>%
   filter(between(art_start_date, as.Date("2010-01-01"), as.Date("2022-12-31")),
          sex != 9,
          !is.na(born) & !is.na(art_start_date),
-         age_at_art_start >= 16) 
+         age_at_art_start >= 16) %>% 
+  rename(gender = sex)
   
 saveRDS(df_art, "data_clean/rsa/art_rsa.rds")
+
+flextable(tabyl(df_tb$regimen_tb))
+
+print(df_art %>% 
+  filter(naive_y == 1 & naive_y_imp  == 1) %>% 
+  nrow())
+
+print(df_art %>% 
+  filter(naive_y %in% c(1,NA) & naive_y_imp %in% c(1,NA)) %>% 
+  nrow())
 
 #flextable::flextable(tabyl(df_art$treatment))
 
@@ -344,7 +369,7 @@ saveRDS(df_art, "data_clean/rsa/art_rsa.rds")
 
 lab_cd4 <- tblLAB_CD4 %>% 
   filter(patient %in% df_art$id) %>% 
-  left_join(df %>% select(id, art_start_date, disease_tb, date_tb), 
+  left_join(df %>% select(id, art_start_date, disease_tb, date_tb, presenting_tb), 
             by = c("patient" = "id")) %>% 
   arrange(patient, date_cd4) %>% 
   group_by(patient) %>% 
@@ -359,7 +384,7 @@ saveRDS(lab_cd4, "data_clean/rsa/cd4_rsa.rds")
 
 lab_rna <- tblLAB_RNA %>%
   filter(patient %in% df_art$id) %>% 
-  left_join(df %>% select(id, art_start_date, disease_tb, date_tb), by = c("patient" = "id")) %>% 
+  left_join(df %>% select(id, art_start_date, disease_tb, date_tb, presenting_tb), by = c("patient" = "id")) %>% 
   arrange(patient, date_rna) %>%
   group_by(patient) %>% 
   mutate(timepoint = row_number(),

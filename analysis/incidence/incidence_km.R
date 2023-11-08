@@ -30,7 +30,8 @@ kaplan <- readRDS("data_clean/art.rds") %>%
            incident_tb == 0 ~ last_persontime),
          persontime_death_days = case_when(
            !is.na(exitdate) ~ as.numeric(difftime(exitdate, art_start_date, units = "days")),
-           is.na(exitdate) ~ last_persontime)) %>% 
+           is.na(exitdate) ~ last_persontime),
+         cohort = fct_relevel(cohort, "RSA")) %>% 
   dplyr::select(id, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, persontime_days, persontime_death_days, cd4_group, exitdate, last_fup_date, rna_group) %>% 
   filter(persontime_years > 0) %>% 
   mutate(event_type = as.factor(case_when(
@@ -38,6 +39,12 @@ kaplan <- readRDS("data_clean/art.rds") %>%
     !is.na(exitdate) ~ 2,
     TRUE ~ 0 # Loss to follow-up isnt considered a competing risk
   )))
+
+kaplan_rsa <- kaplan %>% 
+  filter(cohort == "RSA")
+
+kaplan_ch <- kaplan %>% 
+  filter(cohort == "CH")
 
 #### Kaplan Meier model (excluding competing risk [death]) ---------------------
 
@@ -66,29 +73,7 @@ print(p_death)
 
 ########### Aalen-Johansen model (including competing risk [death]) ------------
 
-## Method 1 ##
-
-library(cmprsk)
-
-print(cmprisk <- cuminc(ftime = kaplan$persontime_years, 
-       fstatus = kaplan$event_type, 
-       group = kaplan$cohort,
-       cencode=0))
-
-plot(cmprisk)
-
-ggcompetingrisks(
-  cmprisk,
-  gnames = NULL,
-  gsep = " ",
-  multiple_panels = TRUE,
-  ggtheme = theme_minimal(),
-  coef = 1.96,
-  conf.int = TRUE,
-) +
-  labs(title = NULL) 
-
-## Method 2 ## <-- graphics easier to modify here 
+## Both in one plot ##
 
 plot_aj <- survfit2(Surv(persontime_years, incident_tb, type = "mstate") ~ cohort, data = kaplan) |>
   ggcuminc(linewidth = 0.5) +
@@ -97,16 +82,70 @@ plot_aj <- survfit2(Surv(persontime_years, incident_tb, type = "mstate") ~ cohor
   theme(legend.position = "none") +
   labs(x = "Years after ART start",
        y = "Cumulative incidence of TB-Incidence (%)") +
-  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  # 'pretty' generates nice breaks for integers
-  scale_y_continuous(expand = c(0,0), labels = function(y) paste0(y * 100)) +  # multiply by 100 for percentages
-  theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0)))  # Optional: adjust the margin if needed
+  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
+  scale_y_continuous(expand = c(0,0), labels = function(y) paste0(y * 100)) +  
+  theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2"))
 
 plot_aj
 
 ggsave(plot = plot_aj, filename = "results/incidence/incidence_aj.png", 
        width = 16, height = 11, units = "cm")
 
-#'Caption: 
+## log-scaled ## 
 
-#' The cumulative incidence rates for time to first tuberculosis incidence after ART initiation 
-#' were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk.
+plot_aj_log <- survfit2(Surv(persontime_years, incident_tb, type = "mstate") ~ cohort, data = kaplan) |>
+  ggcuminc(linewidth = 0.5) +
+  add_confidence_interval() +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x = "Years after ART start",
+       y = "Log-scaled cumulative incidence of TB-Incidence (%)") +
+  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
+  scale_y_continuous(trans = 'log10', 
+                     expand = c(0, 0), 
+                     labels = scales::label_number(scale = 1)) +  
+  theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2")) 
+
+plot_aj_log
+
+ggsave(plot = plot_aj_log, filename = "results/incidence/incidence_aj_log.png", 
+       width = 16, height = 11, units = "cm")
+
+## Seperate plots ##
+
+plot_aj_rsa <- survfit2(Surv(persontime_years, incident_tb, type = "mstate") ~ 1, data = kaplan_rsa) |>
+ggcuminc(linewidth = 0.5, color = wes_palette("Moonrise2")[1]) +
+  add_confidence_interval(fill = wes_palette("Moonrise2")[1]) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
+  scale_y_continuous(limits = c(0,0.2), expand = c(0,0), labels = function(y) paste0(y * 100)) +  
+  theme(axis.title.y = element_blank(),
+        axis.title.x = element_blank())
+
+print(plot_aj_rsa)
+
+plot_aj_ch <- survfit2(Surv(persontime_years, incident_tb, type = "mstate") ~ 1, data = kaplan_ch) |>
+  ggcuminc(linewidth = 0.5, color = wes_palette("Moonrise2")[2]) +
+  add_confidence_interval(fill = wes_palette("Moonrise2")[2]) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
+  scale_y_continuous(limits = c(0,0.01), expand = c(0,0), labels = function(y) paste0(y * 100)) +  
+  theme(axis.title.y = element_blank(),
+        axis.title.x = element_blank())
+
+plot_aj_ch
+
+aj_both <- ggarrange(plot_aj_rsa, plot_aj_ch, ncol = 2) %>% 
+  annotate_figure(bottom = "Years after ART start",
+                  left = "Cumulative incidence of TB-Incidence (%)")
+  
+aj_both
+
+ggsave(plot = aj_both, filename = "results/incidence/incidence_aj_sep.png", 
+       width = 16, height = 11, units = "cm")

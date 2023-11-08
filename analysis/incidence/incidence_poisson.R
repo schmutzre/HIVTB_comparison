@@ -12,7 +12,8 @@ pacman:: p_load(
   epitools,
   sjPlot,
   gridExtra,
-  ggpubr
+  ggpubr,
+  wesanderson
   )
 
 #### Data prep -----------------------------------------------------------------
@@ -25,9 +26,10 @@ df <- readRDS("data_clean/art.rds") %>%
          agegroup = as.factor(agegroup),
          persontime_years = case_when(
            incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
-           incident_tb == 0 ~ last_persontime/360)) %>% 
+           incident_tb == 0 ~ last_persontime/360),
+    cohort = fct_relevel(cohort, "RSA")) %>% 
   dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, cd4_group, rna_group) %>% 
-  filter(persontime_years > 0) 
+  filter(persontime_years > 0)
   
 #### Model ---------------------------------------------------------------------
 
@@ -82,12 +84,12 @@ ggsave(filename = "results/incidence/incidence_IRR.png", plot = plot_IRR, width 
 ## RNA ##
 
 df_rna <- df %>% 
+  mutate(rna_group = case_when(is.na(rna_group) | rna_group == "NA" ~ "NA",
+                               TRUE ~ rna_group)) %>% 
   group_by(cohort, rna_group) %>% 
   summarise(sum_incident_tb = sum(incident_tb == 1), 
             sum_person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95)) %>% 
-  filter(!is.na(rna_group),
-         rna_group != "NA")
+  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95))  
 
 df_combined <- bind_rows(df_rna, df_manual)
 
@@ -98,8 +100,10 @@ plot_rna <- df_combined %>%
                 position = position_dodge(width = 0.5), width = 0.2) +
   labs(x = "Baseline HIV RNA viral load", y = "Incident TB rate per 1,000 person-years") +
   scale_y_continuous() +
-  theme_bw() +
-  theme(legend.position = "none")  # This line removes the legend
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  facet_wrap(~cohort, scales = "free_y")
 
 print(plot_rna)
 
@@ -109,12 +113,12 @@ ggsave(plot = plot_rna, filename = "results/incidence/incidence_rna.png",
 ## CD4 ##
 
 df_cd4 <- df %>% 
+  mutate(cd4_group = case_when(is.na(cd4_group) | cd4_group == "NA" ~ "NA",
+                               TRUE ~ cd4_group)) %>% 
   group_by(cohort, cd4_group) %>% 
   summarise(sum_incident_tb = sum(incident_tb == 1), 
             sum_person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95)) %>% 
-  filter(!is.na(cd4_group),
-         cd4_group != "NA")
+  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95))
 
 df_combined <- bind_rows(df_cd4, df_manual)
 
@@ -125,8 +129,10 @@ plot_cd4 <- df_combined %>%
                 position = position_dodge(width = 0.5), width = 0.2) +
   labs(x = "Baseline CD4 count", y = "Incident TB rate per 1,000 person-years") +
   scale_y_continuous() +
-  theme_bw() +
-  theme(legend.position = "none")
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  facet_wrap(~cohort, scales = "free_y")
 
 print(plot_cd4)
 
@@ -158,6 +164,45 @@ plot_both
 ggsave(plot = plot_both, file = "results/incidence/incidence_both.png", 
        width = 16, height = 11, units = "cm") 
 
+###### IRR compared to 350+ group ######
+
+df <- df %>%
+  mutate(cd4_group = relevel(cd4_group, ref = "350+"))
+
+pois_ch <- glm(incident_tb ~ cd4_group, offset=log(persontime_years), family="poisson", data=df %>% filter(cohort == "CH",
+                                                                                                           !is.na(cd4_group) & cd4_group != "NA"))
+pois_rsa <- glm(incident_tb ~ cd4_group, offset=log(persontime_years), family="poisson", data=df %>% filter(cohort == "RSA",
+                                                                                                           !is.na(cd4_group) & cd4_group != "NA"))
+irr_ch <- plot_model(pois_ch,
+                     colors = wes_palette("Moonrise2")[2],
+                     vline.color = "black",
+                     show.values = TRUE, 
+                     value.offset = .3) +
+  theme_bw() +
+  theme(plot.title = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank()) +
+  scale_x_discrete(labels=c("", "")) 
+  
+irr_rsa <- plot_model(pois_rsa,
+                     colors = wes_palette("Moonrise2")[1],
+                     vline.color = "black",
+                     show.values = TRUE, 
+                     value.offset = .3) +
+  theme_bw() +
+  theme(plot.title = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank()) +
+  scale_x_discrete(labels=c("0-99", "100-349")) 
+
+irr_both <- ggarrange(irr_rsa, irr_ch, ncol = 2) %>% 
+  annotate_figure(bottom = "IRR",
+                  left = "CD4 count at ART start")
+  
+print(irr_both)
+
+ggsave(plot = irr_both, file = "results/incidence/irr_350.png", 
+       width = 16, height = 11, units = "cm") 
 #### Time to TB ----------------------------------------------------------------
 
 time_to_tb <- ch %>% 

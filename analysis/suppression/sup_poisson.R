@@ -73,13 +73,13 @@ print(disp_test)
 #incidence of viral non-suppression
 rna_supression_treshold <- 50
 
-incidence <- ch %>% 
+suppression <- ch %>% 
   summarise(sup_incidence = sum(incidence.sup), 
             person_years = sum(persontime_years.suppression)/1000) %>% 
   mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95))
 
 # Incidence calculations by each rna_group
-incidence_by_rna <- ch %>% 
+suppression_by_rna <- ch %>% 
   filter(rna_group != "NA") %>% 
   group_by(rna_group) %>%
   summarise(sup_incidence = sum(incidence.sup), 
@@ -87,39 +87,43 @@ incidence_by_rna <- ch %>%
   mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95))
 
 # Incidence calculations by each cd4_group
-incidence_by_cd4 <- ch %>% 
+suppression_by_cd4 <- ch %>% 
+  filter(cd4_group != "NA") %>% 
   group_by(cd4_group) %>%
   summarise(sup_incidence = sum(incidence.sup), 
             person_years = sum(persontime_years.suppression)/1000) %>% 
   mutate(pois = pois.exact(x = sup_incidence, pt = person_years, conf.level = 0.95))
 
-incidence_cd4 <- incidence_by_cd4 %>% 
+suppression_cd4 <- suppression_by_cd4 %>% 
   ggplot() +
   geom_point(aes(x = cd4_group, y = pois$rate)) +
   geom_errorbar(aes(x= cd4_group, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
-  geom_point(aes(x = "overall", y=incidence$pois$rate)) +
-  geom_errorbar(aes(x= "overall", ymin = incidence$pois$lower, 
-                    ymax = incidence$pois$upper), width = 0.2) +
-  labs(x= "Baseline CD4 cell count", y = "TB incidence per 1,000 person-years") +
+  geom_point(aes(x = "overall", y=suppression$pois$rate)) +
+  geom_errorbar(aes(x= "overall", ymin = suppression$pois$lower, 
+                    ymax = suppression$pois$upper), width = 0.2) +
+  labs(x= "Baseline CD4 cell count", y = "Viral suppression per 1,000 person-years") +
   theme_bw()
 
-incidence_cd4
+suppression_cd4
 
-ggsave(plot = incidence_cd4, filename = "results/incidence/incidence_cd4.png", width = width_descr, height = height_descr)
+ggsave(plot = incidence_cd4, filename = "results/sup/sup_cd4.png", width = width_descr, height = height_descr)
 
 #rnaplot
 
-incidence_rna <- incidence_by_rna %>% 
+suppression_rna <- incidence_by_rna %>% 
   ggplot() +
   geom_point(aes(x = rna_group, y = pois$rate)) +
   geom_errorbar(aes(x= rna_group, ymin = pois$lower, ymax = pois$upper), width = 0.2) +
+  geom_point(aes(x = "overall", y=suppression$pois$rate)) +
+  geom_errorbar(aes(x= "overall", ymin = suppression$pois$lower, 
+                    ymax = suppression$pois$upper), width = 0.2) +
   labs(x= "Baseline HIV RNA viral load", y = "Viral suppression per 1,000 person-years") +
   theme_bw()
 
-incidence_rna
+suppression_rna
 
-ggsave(plot = incidence_rna, filename = "results/incidence/incidence_rna.png", width = width_descr, height = height_descr)
+ggsave(plot = incidence_rna, filename = "results/sup/sup_rna.png", width = width_descr, height = height_descr)
 
-incidence.both <- grid.arrange(incidence_cd4, incidence_rna, ncol = 2)
+suppression.both <- grid.arrange(suppression_cd4, suppression_rna, ncol = 2)
 
-ggsave(plot = incidence.both, file = "results/incidence/incidence_both.png", width = width_descr*1.5, height = height_descr)
+ggsave(plot = suppression.both, file = "results/sup/sup_both.png", width = width_descr*1.5, height = height_descr)

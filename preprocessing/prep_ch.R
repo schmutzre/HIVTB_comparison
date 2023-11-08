@@ -32,16 +32,19 @@ modif <- read_dta("data_raw/CH/modif_art.dta")
 filteredBOTH <- complete_ch %>%
   # Step 1: Filtering
   filter(
-    between(art_start_date, as.Date("2010-01-01"), as.Date("2022-12-31")) |
+    between(haart_start_date, as.Date("2010-01-01"), as.Date("2022-12-31")) |
       between(date_tb, as.Date("2010-01-01"), as.Date("2022-12-31"))
   ) %>%
   # Step 2: Selecting columns
   select(
-    id, born, sex, risk, art_start_date, haart_start_date, art_start_cd4, virus_type, 
+    id, born, sex, risk, haart_start_date, art_start_date, art_start_cd4, virus_type, 
     disease_tb, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, 
     case_incident_2m, exitdate, current_art, eligibility_art, 
     starts_with("tbd_drug_resist_"), starts_with("tbd_antim_resist_")
   ) %>%
+  mutate(art_start_date = case_when(!is.na(haart_start_date) ~ haart_start_date,
+                                    TRUE ~ art_start_date)) %>% 
+  select(-haart_start_date) %>% 
   # Step 3: Creating new variables
   mutate(
     cohort = as.factor("CH"),
@@ -70,9 +73,6 @@ filteredBOTH <- complete_ch %>%
       TRUE ~ region
     ))
   )
-
-sum(is.na(filteredBOTH$art_start_date))
-sum(is.na(filteredBOTH$haart_start_date))
 
 #### Type of infection ---------------------------------------------------------
 
@@ -293,7 +293,6 @@ filteredBOTH.regimen <- filteredBOTH.person %>%
   select(-(num_art:art_start_date.y)) %>% 
   rename(art_start_date = art_start_date.x)
 
-
 flextable::flextable(tabyl(filteredBOTH.regimen$treatment))
 
 filteredBOTH.regimen <- filteredBOTH.regimen %>% 
@@ -405,11 +404,11 @@ lab_both <- lab.filtered %>%
   mutate(timepoint = row_number()) %>% 
   ungroup() %>% 
   select(-cd4date) %>%
-  left_join(filteredBOTH.tbsite %>% select(id, art_start_date, disease_tb, date_tb), by = "id") %>% 
+  left_join(filteredBOTH.tbsite %>% select(id, art_start_date, disease_tb, date_tb, presenting_tb), by = "id") %>% 
   mutate(time_diff = as.numeric(labdate - art_start_date, units = "days"))
 
 lab_cd4 <- lab_both %>% 
-  select(-rna, timepoint) %>% 
+  select(-rna, -timepoint) %>% 
   filter(!is.na(cd4)) %>% 
   mutate(timepoint = row_number()) %>% 
   rename(date_cd4 = labdate)
@@ -432,7 +431,8 @@ art_ch <- final %>%
          is.na(exitdate) | exitdate >= art_start_date,
          eligibility_art ==1) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
-  select(-virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -haart_start_date)
+  select(-virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art) %>% 
+  rename(gender = sex)
 
 saveRDS(art_ch, "data_clean/ch/art_ch.rds")
 
@@ -445,7 +445,7 @@ tb_ch <- final %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
-  select(-virus_type, -type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -haart_start_date)
+  select(-virus_type, -type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art)
   
 saveRDS(tb_ch, "data_clean/ch/tb_ch.rds") 
 

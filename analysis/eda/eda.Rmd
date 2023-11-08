@@ -21,6 +21,7 @@ library(knitr)
 library(png)
 library(janitor)
 library(flextable)
+library(forcats)
 ```
 
 # Table 1
@@ -33,11 +34,14 @@ rsa <- readRDS("../../data_clean/rsa/art_rsa.rds")
 
 # Columns #
 
-complete$presenting_tb <- 
-  factor(complete$presenting_tb, 
-         levels=c(0,1),
-         labels=c("Not presenting with TB", # Reference
-                  "Presenting with TB"))
+complete <- complete %>%
+  mutate(presenting_tb = factor(presenting_tb, levels = c(0, 1))) %>%
+  mutate(presenting_tb = 
+           fct_recode(presenting_tb,
+                            "Not presenting with TB" = "0",
+                            "Presenting with TB" = "1"),
+         site_tb = case_when(presenting_tb == 0 ~ NA,
+                             TRUE ~ site_tb))
 
 # Age #
 
@@ -45,10 +49,9 @@ label(complete$age_at_art_start) <- "Age at start of ART"
 
 # Sex #
 
-complete$sex <- 
-  factor(complete$sex, 
+complete$gender <- factor(complete$gender, 
          levels=c("Male","Female"))
-label(complete$sex) <- "Sex"
+label(complete$gender) <- "Gender"
 
 # Site of TB #
 
@@ -79,13 +82,51 @@ label(complete$who_stage) <- "WHO clinical stage"
 # HIV treatment regimens #
 
 label(complete$regimen) <- "HIV treatment regimens"
+
+# TB treatment regimens #
+
+label(complete$regimen_tb_group) <- "TB regimen"
 ```
 
 ```{r echo=FALSE, fig.align='center'}
-table1(~ age_at_art_start + sex + site_tb + risk + cd4_baseline + rna_baseline + who_stage + regimen | cohort * presenting_tb, data = complete,
+my.render.cont <- function(x) {
+    stats <- stats.default(x)
+    with(stats, {
+        mean_sd <- sprintf("%d (%d)", round(MEAN), round(SD))
+        median_iqr <- sprintf("%d [%d, %d]", round(MEDIAN), round(Q1), round(Q3))
+        min_max <- sprintf("[%d, %d]", round(MIN), round(MAX))
+        c("", "Mean (SD)"=mean_sd, "Median (IQR)"=median_iqr, "Min, Max"=min_max)
+    })
+}
+
+my.render.cat <- function(x) {
+    # Calculate the total number of non-missing values
+    non_missing_total <- sum(!is.na(x))
+    
+    # Use stats.default to compute frequencies and percentages
+    stats <- stats.default(x)
+    
+    # Use sapply to apply the function to each element of the stats list
+    c("", sapply(stats, function(y) {
+        # Calculate the percentage excluding missings
+        real_pct <- if (non_missing_total > 0) {
+            (y$FREQ / non_missing_total) * 100
+        } else {
+          NA  # Avoid division by zero if non_missing_total is zero
+        }
+        
+        # Prepare the string with both percentages: including and excluding missings
+        sprintf("%d (%0.0f%%; %0.0f%%)", y$FREQ, y$PCT, real_pct)
+    }))
+}
+
+
+table1(~ age_at_art_start + gender + site_tb + risk + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group| cohort * presenting_tb, data = complete,
        overall = c(left = "All"),
        topclass="Rtable1-zebra",
-       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) or a recent history of TB (diagnosis 2-12 months before ART start) with patients with no history of TB.")
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) or a recent history of TB (diagnosis 2-12 months before ART start) with patients with no history of TB.",
+       render.continuous = my.render.cont,
+       render.categorical = my.render.cat)
 ```
 
 ### Top 5 most used ART treatments per cohort
@@ -162,7 +203,9 @@ label(tb$tb_diag_rna) <- "HIV RNA viral load at TB diagnosis"
 table1(~ agegroups + sex + region + site_tb + regimen_tb_group + tb_diag_cd4 + tb_diag_rna | cohort, data = tb,
        overall = c(left = "All"),
        topclass="Rtable1-zebra",
-       caption = "HIV-positive patients with TB diagnosed between 2010 and 2022.")
+       caption = "HIV-positive patients with TB diagnosed between 2010 and 2022.",
+       render.continuous = my.render.cont,
+       render.categorical = my.render.cat)
 ```
 
 ## TB treatment separated by resistancy profile
@@ -175,6 +218,12 @@ result1 <- tb_ch %>%
   tabyl(regimen_tb_group, resistance_tb_any) 
 
 kable(result1)
+```
+
+```{r}
+check_tb <- tb_ch %>% 
+  filter(resistance_tb_any == 1,
+         regimen_tb_group == "Standard")
 ```
 
 ### Khayelitsha (0: no resistancy, 1: any resistancy)
@@ -190,37 +239,32 @@ kable(result2)
 
 ## TB Incidence per baseline groups
 
-![Figure 1: Point-wise incidence estimate from a poisson model stratified by baseline viral load for SHCS (red) and Khayelitsha (blue).](images/incidence_rna-02.png)
+![Figure 1: Point-wise incidence estimate stratified by baseline viral load for Khayelitsha (left) and SHCS (right).](images/incidence_rna-03.png)
 
-![Figure 2: Point-wise incidence estimate from a poisson model stratified by baseline CD4 count for SHCS (red) and Khayelitsha (blue).](images/incidence_cd4-05.png)
+![Figure 2: Point-wise incidence estimate stratified by baseline CD4 count for Khayelitsha (left) and SHCS (right).](images/incidence_cd4-07.png)
+
+![Figure 3: IRR compared to the reference group 350+ (CD4 at ART start) for Khayelitsha (left) and SHCS (right).](images/irr_350.png)
 
 ## Survival analysis
 
-![Figure 3: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk.](images/incidence_aj-01.png)Figure 3: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, SHCS (red) and Khayelitsha (blue ).
+Option 1: side-by-side
+
+![Figure 3: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk.](images/incidence_aj_sep.png)Figure 3: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (left) and SHCS (right).
+
+Option 2: log-scaled
+
+![Figure 4: The cumulative incidence rates (log10-scaled) for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (left) and SHCS (right).](images/incidence_aj_log.png)
 
 ## Immunological recovery slopes
 
-![Figure 4: The model was fitted using a Generalized Additive Model (GAM) with a cubic spline smoothing term to capture non-linear trends.](images/cd4-01.png)
+![Figure 5: The model was fitted using a Generalized Additive Model (GAM) with a cubic spline smoothing term to capture non-linear trends.](images/cd4-02.png)
 
-![Figure 5: The model was fitted using a Generalized Additive Model (GAM) with a cubic spline smoothing term to capture non-linear trends. Note, uncertainty about Art-naive status in Khayelitsha could play a role in low viral load at ART start.](images/rna-01.png)
+![Figure 6: The model was fitted using a Generalized Additive Model (GAM) with a cubic spline smoothing term to capture non-linear trends. Note, uncertainty about Art-naive status in Khayelitsha could play a role in low viral load at ART start. Displaying the non-logscaled values is difficult, as some values are extremely high.](images/rna-02.png)
 
 ## Follow-up
 
-```{r}
-rsa <- rsa %>% 
-  mutate(exit = case_when(!is.na(exitdate) ~ 1,
-                          TRUE ~ 0))
+![Figure 7. Absolute number of deaths per period. As the two groups are unequal in size, this plot won't give us much information I guess.](images/exit_count.png)
 
-ggplot(data = rsa, aes(x = last_persontime, fill = factor(exit))) +
-  geom_histogram(binwidth = 7, color = "black", alpha = 0.7) +
-  labs(
-    x = "last_persontime",
-    y = "Frequency",
-    fill = "exit"
-  )+
-  scale_x_continuous(limits = c(0,360), expand = c(0,0)) +
-  scale_y_continuous(limits = c(0,1750), expand = c(0,0)) +
-  theme_bw()
-```
+![Figure 8: If we use this type of plot, we should probably re-define the categories. I calculate the mortality rate as number of deaths divided by number of patients in the cohort at the beginning of the period. With this approach I am unable to filter out the lost to follow-up in the last category, so I over-estimate the mortality rate in the last category. ](images/exit_prop.png)
 
-Figure 6: A Histogram of the distribution of the variable 'last_persontime' in Khayelitsha. The variable is defined as time until death or time until last follow-up date after ART start if the patient is still alive according to the records.
+![Figure 9: Proportion of cumulative numbers over time. I like this one. ](images/fup_prop.png)
