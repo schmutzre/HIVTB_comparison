@@ -38,7 +38,7 @@ filteredBOTH <- complete_ch %>%
   # Step 2: Selecting columns
   select(
     id, born, sex, risk, haart_start_date, art_start_date, art_start_cd4, virus_type, 
-    disease_tb, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, 
+    disease_tb, tbd_outcome, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, 
     case_incident_2m, exitdate, current_art, eligibility_art, 
     starts_with("tbd_drug_resist_"), starts_with("tbd_antim_resist_")
   ) %>%
@@ -58,6 +58,7 @@ filteredBOTH <- complete_ch %>%
     presenting_tb = as_factor(case_when(
       prevalent_tb == 1 | recent_tb == 1 ~ 1,
       TRUE ~ 0))) %>% 
+  rename(outcome_tb = tbd_outcome) %>% 
   # Step 4: Merging with var_region dataset
   mutate(region = as.numeric(region)) %>%
   left_join(var_region, by = "region") %>%
@@ -200,7 +201,7 @@ who_stages <- filteredBOTH.lab %>%
     mutate(cdc_group = ifelse(cdc_group =="", NA, cdc_group)) %>%
     group_by(id) %>%
     mutate(cdc_group =  
-             ifelse(newdate <= (art_start_date + 30), cdc_group, NA)) %>%
+             ifelse(newdate <= (art_start_date + 180) & newdate >= (art_start_date - 180), cdc_group, NA)) %>%
     arrange(abs(art_start_date - newdate)) %>%
     filter(!is.na(cdc_group)) %>% 
     distinct(id, .keep_all = TRUE) %>% 
@@ -382,9 +383,18 @@ checkingIDs <- complete_ch %>%
   filter(id %in% c(16388, 91050)) %>% 
   select(tbd_drug_resist___1:tbd_antim_resist___99)
 
+#### TB outcome ----------------------------------------------------------------
+
+filteredBOTH.tboutcome <- filteredBOTH.tbtreatment %>% 
+  mutate(outcome_tb = case_when(outcome_tb == "Treatment completed" ~ "Completed",
+                                outcome_tb == "Treatment failed" ~ "Failed",
+                                outcome_tb %in% c("Cured", "Died") ~ outcome_tb,
+                                TRUE ~ NA
+                             ))
+
 #### Site of TB ----------------------------------------------------------------
 
-filteredBOTH.tbsite <- filteredBOTH.tbtreatment %>% 
+filteredBOTH.tbsite <- filteredBOTH.tboutcome %>% 
   mutate(site_tb = as.factor(case_when(disease_tbc == "TBC" ~ "Pulmonary",
                              type_tb_shcs == "TEX" ~ "Extrapulmonary",
                              TRUE ~ NA)))
@@ -431,7 +441,7 @@ art_ch <- final %>%
          is.na(exitdate) | exitdate >= art_start_date,
          eligibility_art ==1) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
-  select(-virus_type, - type_tb_shcs, -disease_tbc, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art) %>% 
+  select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art) %>% 
   rename(gender = sex)
 
 saveRDS(art_ch, "data_clean/ch/art_ch.rds")
@@ -445,7 +455,7 @@ tb_ch <- final %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
-  select(-virus_type, -type_tb_shcs, -disease_tbc, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art)
+  select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art)
   
 saveRDS(tb_ch, "data_clean/ch/tb_ch.rds") 
 

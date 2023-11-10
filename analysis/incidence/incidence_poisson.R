@@ -205,11 +205,11 @@ ggsave(plot = irr_both, file = "results/incidence/irr_350.png",
        width = 16, height = 11, units = "cm") 
 #### Time to TB ----------------------------------------------------------------
 
-time_to_tb <- ch %>% 
-  filter(incidence ==1) %>% 
-  mutate(time_to_tb = as.numeric(date_tb - (art_start_date))) %>% 
-  summarise(median = median(time_to_tb, na.rm = TRUE),
-            "25%" = quantile(time_to_tb, 0.25, na.rm = TRUE),
-            "75%" = quantile(time_to_tb, 0.75, na.rm = TRUE))
-
-time_to_tb
+# time_to_tb <- ch %>% 
+#   filter(incidence ==1) %>% 
+#   mutate(time_to_tb = as.numeric(date_tb - (art_start_date))) %>% 
+#   summarise(median = median(time_to_tb, na.rm = TRUE),
+#             "25%" = quantile(time_to_tb, 0.25, na.rm = TRUE),
+#             "75%" = quantile(time_to_tb, 0.75, na.rm = TRUE))
+# 
+# time_to_tb

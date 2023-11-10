@@ -34,7 +34,7 @@ cd4_rsa <- readRDS("data_clean/rsa/cd4_rsa.rds") %>%
 
 cd4 <- rbind(cd4_ch %>% select(-timepoint),
              cd4_rsa %>% select(-timepoint)) %>% 
-  filter(time_diff > -100 & time_diff < 365) %>% 
+  filter(time_diff > -60 & time_diff < 365) %>% 
   mutate(
     group_30days = as.integer((time_diff %/% 30) + 1),
     cd4_trans = sqrt(cd4))
@@ -47,7 +47,7 @@ cd4_pres <- cd4 %>%
 
 rna <- rbind(rna_ch %>% select(-timepoint),
              rna_rsa %>% select(-timepoint)) %>% 
-  filter(time_diff > -100 & time_diff < 365) %>% 
+  filter(time_diff > -60 & time_diff < 365) %>% 
   mutate(group_30days = as.integer((time_diff %/% 30) + 1),
          rna_trans = log10(rna + 1))
 

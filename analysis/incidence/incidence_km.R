@@ -123,7 +123,7 @@ ggcuminc(linewidth = 0.5, color = wes_palette("Moonrise2")[1]) +
   theme_classic() +
   theme(legend.position = "none") +
   scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
-  scale_y_continuous(limits = c(0,0.2), expand = c(0,0), labels = function(y) paste0(y * 100)) +  
+  scale_y_continuous(limits = c(0,0.25), expand = c(0,0), labels = function(y) paste0(y * 100)) +  
   theme(axis.title.y = element_blank(),
         axis.title.x = element_blank())
 
@@ -135,7 +135,7 @@ plot_aj_ch <- survfit2(Surv(persontime_years, incident_tb, type = "mstate") ~ 1,
   theme_classic() +
   theme(legend.position = "none") +
   scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
-  scale_y_continuous(limits = c(0,0.01), expand = c(0,0), labels = function(y) paste0(y * 100)) +  
+  scale_y_continuous(limits = c(0,0.008), expand = c(0,0), labels = function(y) paste0(y * 100)) +  
   theme(axis.title.y = element_blank(),
         axis.title.x = element_blank())
 

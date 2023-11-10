@@ -7,7 +7,6 @@ library(janitor)
 #### Cleaning the separate data files and preparing to then join them ----------
 
 ## ART treatment ##
-
 tblART <- read.csv("data_raw/RSA/tblART.csv") %>% 
   mutate(across(c(art_sd, art_ed), ~na_if(.x, "")),
          across(c(art_sd, art_ed), ~as.Date(.x, format = "%Y-%m-%d"))) %>% 
@@ -15,25 +14,23 @@ tblART <- read.csv("data_raw/RSA/tblART.csv") %>%
 
 ## Base table ##
 
-tblBAS <- read.csv("data_raw/RSA/tblBAS_incl_naive_imp.csv") %>% 
-  mutate(across(c(birth_d, ENROL_D, RECART_D), ~na_if(.x, "")),
-         across(c(birth_d, ENROL_D, RECART_D), ~as.Date(.x, format = "%Y-%m-%d")),
-         age_at_art_start = interval(birth_d, RECART_D) %/% years(1),
+tblBAS <- read.csv("data_raw/RSA/tblBAS_incl_naive_imp2.csv") %>% 
+  mutate(across(c(birth_d, enrol_d, recart_d), ~na_if(.x, "")),
+         across(c(birth_d, enrol_d, recart_d), ~as.Date(.x, format = "%Y-%m-%d")),
+         age_at_art_start = interval(birth_d, recart_d) %/% years(1),
          sex = as.factor(case_when(sex == 1 ~ "Male",
                          sex == 2 ~ "Female",
-                         TRUE ~ NA))) %>% 
-  rename(born = birth_d,
-         risk = mode, 
-         art_start_date = RECART_D,
-         risk = mode,
-         patient = PATIENT,
-         enrol_d = ENROL_D) %>% 
+                         TRUE ~ NA))) %>%  
+  rename(born = birth_d, 
+         art_start_date = recart_d) %>% 
   distinct(patient, .keep_all = TRUE) %>% 
-  select(patient, enrol_d, born, sex, art_start_date, age_at_art_start, risk, naive_y, naive_y_imp)
+  select(patient, enrol_d, born, sex, art_start_date, age_at_art_start, naive_y, naive_y_imp)
 
 tblNAIVE <- tblBAS %>% 
-  filter(naive_y %in% c(1,NA) & naive_y_imp %in% c(1,NA) & art_start_date >= enrol_d) %>% 
-  select(patient) 
+  filter(naive_y_imp %in% c(1,NA)) %>% 
+  select(patient, art_start_date, enrol_d) %>% 
+  mutate(diff = enrol_d - art_start_date) %>% 
+  filter(diff <= 30 | is.na(diff))
 
 ## CD4 Lab ##
 
@@ -46,9 +43,10 @@ tblLAB_CD4 <- read.csv("data_raw/RSA/tblLAB_CD4.csv") %>%
 ## RNA Lab ##
 
 tblLAB_RNA <- read.csv("data_raw/RSA/tblLAB_RNA.csv") %>% 
+  filter(!is.na(rna_v)) %>% 
   rowwise() %>% 
   mutate(rna = case_when(
-    rna_v < 0 ~ round(runif(1, 0, abs(rna_v)),0),
+    rna_v < 0 ~ round(runif(1, 0, abs(rna_v)), 0),
     TRUE ~ rna_v
   )) %>% 
   ungroup() %>% 
@@ -75,7 +73,10 @@ last_visit <- read.csv("data_raw/RSA/tblVIS.csv") %>%
 tblLTFU2 <- tblLTFU %>% 
   left_join(last_visit, by = "patient") %>% 
   filter(vis_d > last_fup_date)
+
 #' the variable last_fup_date is OK
+#' i was checking if there where some visits after the last fup-date which would indicate
+#' that the variable doesn't really capture the last fup-date.
 
 ## TB resistance ##
 
@@ -98,7 +99,15 @@ tbltb_res <- read.csv("data_raw/RSA/tbltb_res.csv") %>%
   distinct(patient, .keep_all = TRUE) %>%
   select(patient, resistance_tb_any, resistance_tb_mdr)
 
+## Med Table ##
+
+#' read.csv("data_raw/RSA/")
+#' Chido will send a tblMED which includes all meds given, we can use this to 
+#' the TB treatment in tblTB and also the ART treatment maybe
+
 ## TB table ##
+
+#' Chido will send us a new TB table
 
 tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>% 
   group_by(patient) %>%
@@ -109,7 +118,7 @@ tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>%
   rename(date_tb = reg_dmy, 
          regimen_tb = regimen,
          site_tb = class) %>% 
-  select(patient, date_tb, regimen_tb, site_tb) %>% 
+  select(patient, date_tb, regimen_tb, site_tb, tb_outcome) %>% 
   mutate(across(c(date_tb, site_tb), ~na_if(.x, "")),
          date_tb = as.Date(date_tb, format = "%Y-%m-%d"),
          disease_tb = as.factor(1),
@@ -122,7 +131,16 @@ tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>%
                                           regimen_tb == 4 ~ "Others",
                                           TRUE ~ NA)),
          regimen_tb_group = as.factor(case_when(regimen_tb %in% c("2HRZE 4HR", "2HRZ 4HR") ~ "Standard",
-                                                TRUE ~ regimen_tb)))
+                                                TRUE ~ regimen_tb)),
+         outcome_tb = case_when(tb_outcome == 1 ~ "Completed",
+                                tb_outcome == 2 ~ "Cured",
+                                tb_outcome == 3 ~ "Failed",
+                                tb_outcome == 4 ~ "Interrupted",
+                                tb_outcome == 5 ~ "Defaulted",
+                                tb_outcome == 6 ~ "Treatment ongoing",
+                                tb_outcome == 7 ~ "Died",
+                                TRUE ~ NA))
+
 
 ## WHO stage ##
 
@@ -138,10 +156,12 @@ tblVIS <- read.csv("data_raw/RSA/tblVIS.csv") %>%
                                who_stage == 9 ~ NA,
                                TRUE ~ who_stage)) %>%
   filter(difference <= 180) %>%
-  arrange(patient, difference) %>%
+  arrange(patient, difference) %>% #per patient, then first the non-NA values, then arranged per time difference
   slice(1) %>%
   ungroup() %>%
   select(patient, who_stage)
+
+#' hier muss ich anders slicen, die ersten nicht-NA beobachtungen nehmen
 
 ## CD4 baseline values ##
 
@@ -314,8 +334,8 @@ df <- tblBAS %>%
            last_persontime = as.numeric(case_when(!is.na(exitdate) ~ exitdate - art_start_date,
                                        TRUE ~ last_fup_date - art_start_date))) %>% 
   select(-enrol_d) %>% 
-  distinct(patient, .keep_all = TRUE) %>% 
-  rename(id = patient)  %>% 
+  distinct(patient, .keep_all = TRUE) %>%
+  rename(id = patient) %>% 
   filter(born < exitdate | is.na(exitdate))
 
 #### Defining study populations ------------------------------------------------
@@ -351,16 +371,6 @@ df_art <- df %>%
   
 saveRDS(df_art, "data_clean/rsa/art_rsa.rds")
 
-flextable(tabyl(df_tb$regimen_tb))
-
-print(df_art %>% 
-  filter(naive_y == 1 & naive_y_imp  == 1) %>% 
-  nrow())
-
-print(df_art %>% 
-  filter(naive_y %in% c(1,NA) & naive_y_imp %in% c(1,NA)) %>% 
-  nrow())
-
 #flextable::flextable(tabyl(df_art$treatment))
 
 #### Lab data ------------------------------------------------------------------
@@ -393,3 +403,4 @@ lab_rna <- tblLAB_RNA %>%
   rename(id = patient)
   
 saveRDS(lab_rna, "data_clean/rsa/rna_rsa.rds")
+

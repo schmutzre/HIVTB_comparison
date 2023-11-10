@@ -25,10 +25,10 @@ compare_types <- data.frame(
 compare_types[compare_types$Type_in_ch != compare_types$Type_in_rsa, ]
 
 art_ch$born <- as.Date(paste0(art_ch$born, "-01-01"), format = "%Y-%m-%d")
-art_rsa$risk <- as.factor(art_rsa$risk)
+art_rsa$who_stage <- as.factor(art_rsa$who_stage)
 
 tb_ch$born <- as.Date(paste0(tb_ch$born, "-01-01"), format = "%Y-%m-%d")
-tb_rsa$risk <- as.factor(tb_rsa$risk)
+tb_rsa$who_stage <- as.factor(tb_rsa$who_stage)
 
 #### Combine data & save -------------------------------------------------------
 
