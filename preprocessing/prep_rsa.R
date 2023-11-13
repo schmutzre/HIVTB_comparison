@@ -27,7 +27,7 @@ tblBAS <- read.csv("data_raw/RSA/tblBAS_incl_naive_imp2.csv") %>%
   select(patient, enrol_d, born, sex, art_start_date, age_at_art_start, naive_y, naive_y_imp)
 
 tblNAIVE <- tblBAS %>% 
-  filter(naive_y_imp %in% c(1,NA)) %>% 
+  filter(naive_y_imp %in% c(1,NA) & naive_y %in% c(1,NA)) %>% 
   select(patient, art_start_date, enrol_d) %>% 
   mutate(diff = enrol_d - art_start_date) %>% 
   filter(diff <= 30 | is.na(diff))
@@ -147,22 +147,21 @@ tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>%
 tblVIS <- read.csv("data_raw/RSA/tblVIS.csv") %>% 
   filter(patient %in% tblNAIVE$patient) %>% 
   select(patient, vis_d, who_stage) %>% 
-  mutate(vis_d = as.Date(vis_d, format = "%Y-%m-%d"),
-         who_stage = as.factor(who_stage)) %>% 
+  mutate(vis_d = as.Date(vis_d, format = "%Y-%m-%d")) %>% 
   left_join(tblBAS %>% select(patient, art_start_date), by = "patient") %>% 
   group_by(patient) %>%
   mutate(difference = abs(vis_d - art_start_date),
-         who_stage = case_when(who_stage %in% c(2,3) ~ "2/3",
+         who_stage = as.factor(case_when(who_stage %in% c(2,3) ~ "2/3",
                                who_stage == 9 ~ NA,
-                               TRUE ~ who_stage)) %>%
+                               TRUE ~ as.character(who_stage)))) %>%
   filter(difference <= 180) %>%
-  arrange(patient, difference) %>% #per patient, then first the non-NA values, then arranged per time difference
+  arrange(patient, is.na(who_stage), difference) %>% 
   slice(1) %>%
   ungroup() %>%
   select(patient, who_stage)
 
-#' hier muss ich anders slicen, die ersten nicht-NA beobachtungen nehmen
 
+  
 ## CD4 baseline values ##
 
 baseline_cd4 <- tblLAB_CD4 %>% 

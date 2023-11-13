@@ -56,22 +56,22 @@ label(complete$gender) <- "Gender"
 # Site of TB #
 
 complete <- complete %>% 
-  mutate(site_tb = case_when(presenting_tb == 0 ~ NA,
+  mutate(site_tb = case_when(presenting_tb == "Not presenting with TB" ~ NA,
                              TRUE ~ site_tb),
          regimen_tb_group = case_when(
-           presenting_tb == 0 ~ NA,
+           presenting_tb == "Not presenting with TB" ~ NA,
            TRUE ~ regimen_tb_group))
 label(complete$site_tb) <- "Site of TB"
 
 # Source of original HIV infection #
 
-complete$risk <- 
-  factor(complete$risk, 
-         levels=c("Homosexual","Heterosexual","IVD, needle sharing", "IVD/sexual", 
-                  "Other blood products", "Perinatal", "Other sources"),
-         labels = c("Homosexual contacts", "Heterosexual contacts", "I.v. drug use (with needle sharing)", "I.v. drugs/sexual contacts (unclear which one)", "Other blood products", "Perinatal transmission", "Other sources"))
-
-label(complete$risk) <- "Source of original HIV infection"
+# complete$risk <- 
+#   factor(complete$risk, 
+#          levels=c("Homosexual","Heterosexual","IVD, needle sharing", "IVD/sexual", 
+#                   "Other blood products", "Perinatal", "Other sources"),
+#          labels = c("Homosexual contacts", "Heterosexual contacts", "I.v. drug use (with needle sharing)", "I.v. drugs/sexual contacts (unclear which one)", "Other blood products", "Perinatal transmission", "Other sources"))
+# 
+# label(complete$risk) <- "Source of original HIV infection"
 
 # CD4 baseline #
 
@@ -127,7 +127,7 @@ my.render.cat <- function(x) {
 }
 
 
-table1(~ age_at_art_start + gender + site_tb + risk + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group| cohort * presenting_tb, data = complete,
+table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group| presenting_tb, data = complete,
        overall = c(left = "All"),
        topclass="Rtable1-zebra",
        caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) or a recent history of TB (diagnosis 2-12 months before ART start) with patients with no history of TB.",

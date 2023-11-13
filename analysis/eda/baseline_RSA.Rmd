@@ -1,0 +1,191 @@
+---
+title: "Study population Khayelitsha"
+author: "Remo Schmutz"
+date: "2023-11-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+library(table1)
+library(tidyverse)
+library(knitr)
+library(png)
+library(janitor)
+library(flextable)
+library(forcats)
+```
+
+## Study population
+
+I defined ART-naive patients as scoring 1 or NA in naive_y and simultaneously scoring 1 or NA in naive_y. Also i filtered out patients with a enrollment data more than a month after their ART start (encart_d). This is the code i use to determine ART-naive patients:
+
+```{r}
+tblBAS <- read.csv("../../data_raw/RSA/tblBAS_incl_naive_imp2.csv") %>% 
+  mutate(across(c(birth_d, enrol_d, recart_d), ~na_if(.x, "")),
+         across(c(birth_d, enrol_d, recart_d), ~as.Date(.x, format = "%Y-%m-%d")),
+         age_at_art_start = interval(birth_d, recart_d) %/% years(1),
+         sex = as.factor(case_when(sex == 1 ~ "Male",
+                         sex == 2 ~ "Female",
+                         TRUE ~ NA))) %>%  
+  rename(born = birth_d, 
+         art_start_date = recart_d) %>% 
+  distinct(patient, .keep_all = TRUE) %>% 
+  select(patient, enrol_d, born, sex, art_start_date, age_at_art_start, naive_y, naive_y_imp)
+
+tblNAIVE <- tblBAS %>% 
+  filter(naive_y_imp %in% c(1,NA) & naive_y %in% c(1,NA)) %>% 
+  mutate(diff = enrol_d - art_start_date) %>% 
+  filter(diff <= 30 | is.na(diff))
+```
+
+
+This leaves us with ``r nrow(tblNAIVE)`` patients.
+
+Using our exclusion/inclusion criteria: 
+```{r}
+tblPOP <- tblNAIVE %>% 
+  filter(between(art_start_date, as.Date("2010-01-01"), as.Date("2022-12-31")),
+         !is.na(sex),
+         !is.na(born) & !is.na(art_start_date),
+         age_at_art_start >= 16)
+```
+
+This leaves us with ``r nrow(tblPOP)`` patients.
+
+## WHO stage
+
+To calculate the baseline WHO-stage, I use the tblVIS dataset and check visits 180 days before and after ART start. For every patient I use the closest non-NA entry to determine his WHO-stage at ART start. Using such a wide time-interval is a rather generous approach. The results are displayed in Table 1.
+
+```{r}
+tblVIS <- read.csv("../../data_raw/RSA/tblVIS.csv") %>% 
+  filter(patient %in% tblNAIVE$patient) %>% 
+  select(patient, vis_d, who_stage) %>% 
+  mutate(vis_d = as.Date(vis_d, format = "%Y-%m-%d")) %>% 
+  left_join(tblBAS %>% select(patient, art_start_date), by = "patient") %>% 
+  group_by(patient) %>%
+  mutate(difference = abs(vis_d - art_start_date),
+         who_stage = as.factor(case_when(who_stage %in% c(2,3) ~ "2/3",
+                               who_stage == 9 ~ NA,
+                               TRUE ~ as.character(who_stage)))) %>%
+  filter(difference <= 180) %>%
+  arrange(patient, is.na(who_stage), difference) %>% 
+  slice(1) %>%
+  ungroup() %>%
+  select(patient, who_stage)
+```
+
+
+## Table 1
+
+```{r, include=FALSE}
+
+complete <-  readRDS("../../data_clean/art.rds")
+ch <- readRDS("../../data_clean/ch/art_ch.rds")
+rsa <- readRDS("../../data_clean/rsa/art_rsa.rds")
+
+# Columns #
+
+complete <- complete %>%
+  mutate(presenting_tb = factor(presenting_tb, levels = c(0, 1))) %>%
+  mutate(presenting_tb = 
+           fct_recode(presenting_tb,
+                            "Not presenting with TB" = "0",
+                            "Presenting with TB" = "1"),
+         site_tb = case_when(presenting_tb == 0 ~ NA,
+                             TRUE ~ site_tb))
+
+# Age #
+
+label(complete$age_at_art_start) <- "Age at start of ART"
+
+# Sex #
+
+complete$gender <- factor(complete$gender, 
+         levels=c("Male","Female"))
+label(complete$gender) <- "Gender"
+
+# Site of TB #
+
+complete <- complete %>% 
+  mutate(site_tb = case_when(presenting_tb == "Not presenting with TB" ~ NA,
+                             TRUE ~ site_tb),
+         regimen_tb_group = case_when(
+           presenting_tb == "Not presenting with TB" ~ NA,
+           TRUE ~ regimen_tb_group))
+label(complete$site_tb) <- "Site of TB"
+
+# Source of original HIV infection #
+
+# complete$risk <- 
+#   factor(complete$risk, 
+#          levels=c("Homosexual","Heterosexual","IVD, needle sharing", "IVD/sexual", 
+#                   "Other blood products", "Perinatal", "Other sources"),
+#          labels = c("Homosexual contacts", "Heterosexual contacts", "I.v. drug use (with needle sharing)", "I.v. drugs/sexual contacts (unclear which one)", "Other blood products", "Perinatal transmission", "Other sources"))
+# 
+# label(complete$risk) <- "Source of original HIV infection"
+
+# CD4 baseline #
+
+label(complete$cd4_baseline) <- "CD4 cell count at start of ART"
+
+# Viral load baseline #
+
+label(complete$rna_baseline) <- "HIV RNA viral load at start of ART"
+
+# WHO stage #
+
+label(complete$who_stage) <- "WHO clinical stage"
+
+# HIV treatment regimens #
+
+label(complete$regimen) <- "HIV treatment regimens"
+
+# TB treatment regimens #
+
+label(complete$regimen_tb_group) <- "TB regimen"
+
+
+```
+
+```{r echo=FALSE, fig.align='center'}
+my.render.cont <- function(x) {
+    stats <- stats.default(x)
+    with(stats, {
+        mean_sd <- sprintf("%d (%d)", round(MEAN), round(SD))
+        median_iqr <- sprintf("%d [%d, %d]", round(MEDIAN), round(Q1), round(Q3))
+        min_max <- sprintf("[%d, %d]", round(MIN), round(MAX))
+        c("", "Mean (SD)"=mean_sd, "Median (IQR)"=median_iqr, "Min, Max"=min_max)
+    })
+}
+
+my.render.cat <- function(x) {
+    # Calculate the total number of non-missing values
+    non_missing_total <- sum(!is.na(x))
+    
+    # Use stats.default to compute frequencies and percentages
+    stats <- stats.default(x)
+    
+    # Use sapply to apply the function to each element of the stats list
+    c("", sapply(stats, function(y) {
+        # Calculate the percentage excluding missings
+        real_pct <- if (non_missing_total > 0) {
+            (y$FREQ / non_missing_total) * 100
+        } else {
+          NA  # Avoid division by zero if non_missing_total is zero
+        }
+        
+        # Prepare the string with both percentages: including and excluding missings
+        sprintf("%d (%0.0f%%; %0.0f%%)", y$FREQ, y$PCT, real_pct)
+    }))
+}
+
+
+table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group| presenting_tb, data = complete %>% filter(cohort == "RSA"),
+       overall = c(left = "All"),
+       topclass="Rtable1-zebra",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) or a recent history of TB (diagnosis 2-12 months before ART start) with patients with no history of TB.",
+       render.continuous = my.render.cont,
+       render.categorical = my.render.cat)
+```
