@@ -20,7 +20,7 @@ pacman:: p_load(
 
 custom_breaks <- c(16, 24, 34, 44, 100)
 
-df <- readRDS("data_clean/art.rds") %>% 
+df <- readRDS("data_clean/art_noTB.rds") %>% 
   mutate(incident_tb = as.numeric(as.character(incident_tb)),
     agegroup = cut(age_at_art_start, breaks = custom_breaks, include.lowest = TRUE),
          agegroup = as.factor(agegroup),
@@ -92,6 +92,19 @@ df_rna <- df %>%
   mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95))  
 
 df_combined <- bind_rows(df_rna, df_manual)
+
+overall_rsa <- df_combined %>% filter(cohort == "RSA",
+                                      rna_group == "Overall")
+rsa_rate <- overall_rsa$pois$rate
+rsa_lrate <- overall_rsa$pois$lower
+rsa_urate <- overall_rsa$pois$upper
+
+overall_ch <- df_combined %>% filter(cohort == "CH",
+                                      rna_group == "Overall")
+
+ch_rate <- overall_ch$pois$rate
+ch_lrate <- overall_ch$pois$lower
+ch_urate <- overall_ch$pois$upper
 
 plot_rna <- df_combined %>% 
   ggplot(aes(x = rna_group, y = pois$rate, group = interaction(cohort, rna_group))) +
@@ -171,42 +184,44 @@ df <- df %>%
 
 pois_ch <- glm(incident_tb ~ cd4_group, offset=log(persontime_years), family="poisson", data=df %>% filter(cohort == "CH",
                                                                                                            !is.na(cd4_group) & cd4_group != "NA"))
+tidy_pois_ch <- broom::tidy(pois_ch, conf.int = TRUE, exponentiate = TRUE) %>% 
+  mutate(cohort = as.factor("CH"))
+
 pois_rsa <- glm(incident_tb ~ cd4_group, offset=log(persontime_years), family="poisson", data=df %>% filter(cohort == "RSA",
                                                                                                            !is.na(cd4_group) & cd4_group != "NA"))
-irr_ch <- plot_model(pois_ch,
-                     colors = wes_palette("Moonrise2")[2],
-                     vline.color = "black",
-                     show.values = TRUE, 
-                     value.offset = .3) +
-  theme_bw() +
-  theme(plot.title = element_blank(),
-        axis.title.y = element_blank(),
-        axis.title.x = element_blank()) +
-  scale_x_discrete(labels=c("", "")) 
-  
-irr_rsa <- plot_model(pois_rsa,
-                     colors = wes_palette("Moonrise2")[1],
-                     vline.color = "black",
-                     show.values = TRUE, 
-                     value.offset = .3) +
-  theme_bw() +
-  theme(plot.title = element_blank(),
-        axis.title.y = element_blank(),
-        axis.title.x = element_blank()) +
-  scale_x_discrete(labels=c("0-99", "100-349")) 
+tidy_pois_rsa <- broom::tidy(pois_rsa, conf.int = TRUE, exponentiate = TRUE) %>% 
+  mutate(cohort = as.factor("RSA"))
 
-irr_both <- ggarrange(irr_rsa, irr_ch, ncol = 2) %>% 
-  annotate_figure(bottom = "IRR",
-                  left = "CD4 count at ART start")
-  
-print(irr_both)
+combined_data <- rbind(tidy_pois_rsa, tidy_pois_ch) %>% 
+  filter(term != "(Intercept)") %>% 
+  mutate(cohort = factor(cohort, levels = c("RSA", "CH")),
+         term = case_when(term == "cd4_group0-99" ~ "0-99",
+                          TRUE ~ "100-349")) %>% 
+  dplyr::select(term, estimate, conf.low, conf.high, cohort)
 
-ggsave(plot = irr_both, file = "results/incidence/irr_350.png", 
+reference <- tibble(term = rep("350+",2), estimate = rep(1,2), conf.low = rep(1,2), conf.high = rep(1,2), cohort = c("RSA", "CH"))
+combined_data <- rbind(combined_data, reference)
+
+
+combined_plot <- ggplot(combined_data, aes(x = term, y = estimate, ymin = conf.low, ymax = conf.high, color = cohort)) +
+  geom_point(position = position_dodge(width = -0.5)) +
+  geom_errorbar(aes(group = cohort), width = 0.2, position = position_dodge(width = -0.5)) +
+  theme_bw() +
+  scale_y_log10() +  # Apply logarithmic scale to y-axis
+  labs(x = "CD4 count at ART start", y = "Incident Rate Ratios (IRR)") +
+  scale_color_manual(values = wes_palette("Moonrise2")[1:2]) +
+  coord_flip() +
+  theme(legend.title = element_blank())
+
+combined_plot
+
+ggsave(plot = combined_plot, file = "results/incidence/irr.png", 
        width = 16, height = 11, units = "cm") 
+
 #### Time to TB ----------------------------------------------------------------
 
 # time_to_tb <- ch %>% 
-#   filter(incidence ==1) %>% 
+#   filter(incidence == 1) %>% 
 #   mutate(time_to_tb = as.numeric(date_tb - (art_start_date))) %>% 
 #   summarise(median = median(time_to_tb, na.rm = TRUE),
 #             "25%" = quantile(time_to_tb, 0.25, na.rm = TRUE),

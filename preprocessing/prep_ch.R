@@ -3,11 +3,10 @@
 if(!require(pacman)) install.packages("pacman")
 
 pacman:: p_load(
-  tidyverse,
   haven,
   janitor,
   gridExtra,
-  stringr
+  stringr,tidyverse
 )
 
 #### Data ----------------------------------------------------------------------
@@ -36,7 +35,7 @@ filteredBOTH <- complete_ch %>%
       between(date_tb, as.Date("2010-01-01"), as.Date("2022-12-31"))
   ) %>%
   # Step 2: Selecting columns
-  select(
+  dplyr::select(
     id, born, sex, risk, haart_start_date, art_start_date, art_start_cd4, virus_type, 
     disease_tb, tbd_outcome, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, 
     case_incident_2m, exitdate, current_art, eligibility_art, 
@@ -44,7 +43,7 @@ filteredBOTH <- complete_ch %>%
   ) %>%
   mutate(art_start_date = case_when(!is.na(haart_start_date) ~ haart_start_date,
                                     TRUE ~ art_start_date)) %>% 
-  select(-haart_start_date) %>% 
+  dplyr::select(-haart_start_date) %>% 
   # Step 3: Creating new variables
   mutate(
     cohort = as.factor("CH"),
@@ -55,14 +54,12 @@ filteredBOTH <- complete_ch %>%
     recent_tb = as_factor(case_when(
       date_tb < art_start_date - 60 & date_tb > art_start_date - 360 ~ 1,
       TRUE ~ 0)),
-    presenting_tb = as_factor(case_when(
-      prevalent_tb == 1 | recent_tb == 1 ~ 1,
-      TRUE ~ 0))) %>% 
+    presenting_tb = prevalent_tb) %>% 
   rename(outcome_tb = tbd_outcome) %>% 
   # Step 4: Merging with var_region dataset
   mutate(region = as.numeric(region)) %>%
   left_join(var_region, by = "region") %>%
-  select(-region) %>%
+  dplyr::select(-region) %>%
   rename(region = var_desc) %>%
   # Step 5: Reclassifying region
   mutate(
@@ -134,14 +131,14 @@ filteredBOTH_region <- filteredBOTH %>%
            TRUE ~ NA),
          case_incident_2m = case_when(case_incident_2m == "Incident TB" ~ 1,
                                       TRUE ~ 0)) %>% 
-  select(-region, -tbd_pat_birth) %>% 
+  dplyr::select(-region, -tbd_pat_birth) %>% 
   mutate(region = as.factor(region_born)) %>% 
-  select(-region_born)
+  dplyr::select(-region_born)
 
 #### CD4 and VL baseline -------------------------------------------------------
 
 lab.filtered <- lab %>% 
-    select(id:cd4date, cd4, rna) %>% 
+    dplyr::select(id:cd4date, cd4, rna) %>% 
     filter(id %in% filteredBOTH$id)
   
 baseline_cd4 <- filteredBOTH_region %>% 
@@ -165,9 +162,11 @@ baseline_rna <- filteredBOTH_region %>%
 colnames_x <- paste0(setdiff(colnames(filteredBOTH), "id"), ".x")
   
 filteredBOTH.lab <- filteredBOTH_region %>% 
-    left_join(baseline_cd4 %>% select(id,cd4_baseline, labdate), by = "id") %>% 
-    left_join(baseline_rna %>% select(id,rna_baseline, labdate), by = "id") %>% 
-    select(c(id, all_of(colnames(filteredBOTH_region)), cd4_baseline, labdate.x, rna_baseline, labdate.y)) %>% 
+    left_join(baseline_cd4 %>% 
+                dplyr::select(id,cd4_baseline, labdate), by = "id") %>% 
+    left_join(baseline_rna %>% 
+                dplyr::select(id,rna_baseline, labdate), by = "id") %>% 
+    dplyr::select(c(id, all_of(colnames(filteredBOTH_region)), cd4_baseline, labdate.x, rna_baseline, labdate.y)) %>% 
     rename(labdate_cd4 = labdate.x, labdate_rna = labdate.y) %>% 
     rename_with(~ str_replace_all(., "\\..$", ""))
   
@@ -193,7 +192,7 @@ filteredBOTH.lab <- filteredBOTH.lab %>%
 dis2 <- dis %>% 
     filter(id %in% filteredBOTH.lab$id) %>% 
     left_join(var_disease, by = "disease") %>% 
-    select(id:disease, disease_id, cdc_group) %>% 
+    dplyr::select(id:disease, disease_id, cdc_group) %>% 
     mutate(cdc_group = ifelse(cdc_group =="D", "C", cdc_group))  
   
 who_stages <- filteredBOTH.lab %>% 
@@ -213,7 +212,7 @@ who_stages <- filteredBOTH.lab %>%
     ungroup() 
   
 filteredBOTH.who <- filteredBOTH.lab %>% 
-    left_join(who_stages %>% select(id, who_stage), by = "id") 
+    left_join(who_stages %>% dplyr::select(id, who_stage), by = "id") 
   
 #### CD4 and VL @ TB-date ------------------------------------------------------
 
@@ -243,15 +242,15 @@ tb_rna <- filteredBOTH.who %>%
   
 # Join the two datasets together
 tb_cd4_rna <- tb_cd4 %>%
-    select(id, tb_diag_cd4) %>%
+    dplyr::select(id, tb_diag_cd4) %>%
     full_join(tb_rna %>% 
-                select(id, tb_diag_rna), by = "id")
+                dplyr::select(id, tb_diag_rna), by = "id")
   
 filteredBOTH.tb <- filteredBOTH.who %>%
     left_join(tb_cd4_rna, by = "id")
 
 filteredBOTH.person <- filteredBOTH.tb %>%
-  left_join(admin %>% select(id, last_fup_date), by = "id") %>% 
+  left_join(admin %>% dplyr::select(id, last_fup_date), by = "id") %>% 
   mutate(last_persontime = case_when(
     !is.na(exitdate) ~ as.numeric(difftime(exitdate, art_start_date, units = "days")),
     TRUE ~ as.numeric(difftime(last_fup_date, art_start_date, units = "days"))
@@ -262,7 +261,7 @@ filteredBOTH.person <- filteredBOTH.tb %>%
 #### Add ART-treatment ---------------------------------------------------------
 
 modif2 <- modif %>% 
-left_join(filteredBOTH %>% select(id, art_start_date), by = "id") %>% 
+left_join(filteredBOTH %>% dplyr::select(id, art_start_date), by = "id") %>% 
   filter(treatment != "",
          id %in% filteredBOTH$id)%>% 
   mutate(time_diff_ART = moddate - art_start_date,
@@ -291,7 +290,7 @@ filteredBOTH.regimen <- filteredBOTH.person %>%
       num_nnrti != 0 ~ "NNRTI-based",
       TRUE ~ "Other"
     )) %>% 
-  select(-(num_art:art_start_date.y)) %>% 
+  dplyr::select(-(num_art:art_start_date.y)) %>% 
   rename(art_start_date = art_start_date.x)
 
 flextable::flextable(tabyl(filteredBOTH.regimen$treatment))
@@ -326,7 +325,7 @@ df_tb <- df_tb %>%
   dplyr::rename(!!!names_vector_res)
 
 tb_resi <- df_tb %>%
-  select(id, date_tb, Rifampicin_R:Others_R) %>%
+  dplyr::select(id, date_tb, Rifampicin_R:Others_R) %>%
   pivot_longer(cols = Rifampicin_R:Others_R, names_to = "Drug", values_to = "value") %>% 
   filter(value == 1) %>%
   group_by(id) %>%
@@ -337,7 +336,7 @@ tb_resi <- df_tb %>%
 
 filteredBOTH.resist <- filteredBOTH.regimen %>% 
   left_join(tb_resi , by = "id") %>% 
-  select(-c(tbd_drug_resist___1:tbd_drug_resist_others)) %>% 
+  dplyr::select(-c(tbd_drug_resist___1:tbd_drug_resist_others)) %>% 
   mutate(resistance_tb_any = as.factor(case_when(!is.na(resistance_tb) ~ 1,
                    TRUE ~ 0)),
          resistance_tb_mdr = as.factor(case_when(
@@ -348,7 +347,7 @@ filteredBOTH.resist <- filteredBOTH.regimen %>%
 #### TB treatment --------------------------------------------------------------
 
 test <- complete_ch %>% 
-  select(tbd_antim_resist___1:tbd_antim_resist_others)
+  dplyr::select(tbd_antim_resist___1:tbd_antim_resist_others)
 cols_to_rename <- names(df_tb)[which(names(df_tb) %in% paste0("tbd_antim_resist___", 1:99))]
 new_names <- unlist(var_labels[cols_to_rename])
 names_vector <- setNames(cols_to_rename, new_names)
@@ -357,7 +356,7 @@ df_tb <- df_tb %>%
   dplyr::rename(!!!names_vector)
 
 tb <- df_tb %>%
-  select(id, date_tb, RHZE_TX:Others_TX) %>% 
+  dplyr::select(id, date_tb, RHZE_TX:Others_TX) %>% 
   pivot_longer(cols = RHZE_TX:Others_TX, names_to = "Drug", values_to = "value") %>%
   filter(value == 1) %>%
   group_by(id) %>%
@@ -368,20 +367,27 @@ tb <- df_tb %>%
 
 filteredBOTH.tbtreatment <- filteredBOTH.resist %>% 
   left_join(tb , by = "id") %>% 
-  select(-c(tbd_antim_resist___1:tbd_antim_resist_others))
+  dplyr::select(-c(tbd_antim_resist___1:tbd_antim_resist_others))
 
 tableTB <- tabyl(filteredBOTH.tbtreatment$regimen_tb, show_na = FALSE)
 
 filteredBOTH.tbtreatment <- filteredBOTH.tbtreatment %>% 
   mutate(regimen_tb_group = 
-           as.factor(case_when(regimen_tb %in% c(tableTB[20,1], tableTB[13,1],tableTB[12,1],tableTB[10,1],tableTB[9,1],tableTB[7,1]) ~ "Standard",
-                                        regimen_tb %in% c(tableTB[19,1],tableTB[15,1],tableTB[14,1],tableTB[11,1],tableTB[10,1],tableTB[8,1],tableTB[4,1]) ~ "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone",
-                                        regimen_tb %in% c(tableTB[18,1],tableTB[17,1],tableTB[16,1],tableTB[6,1],tableTB[5,1],tableTB[4,1],tableTB[3,1],tableTB[1,1]) ~ "Rifabutin-based regimen, plus at least HZE +/- another drug",
+           as.factor(case_when(regimen_tb %in% c("Standard", "Rifampicin, Pyrazinamide, Isoniazid, Ethambutol", "Rifampicin", "RH, Pyrazinamide, Ethambutol", "Rifampicin, Pyrazinamide, Isoniazid, Ethambutol") ~ "Standard",
+                                        regimen_tb %in% c("Pyrazinamide, Isoniazid, Ethambutol, Amikacin, Moxifloxacin, Cycloserine, PAS, Linezolid, Imipenem",
+                                                          "RH, Pyrazinamide, Ethambutol, Amikacin, Moxifloxacin",
+                                                          "Rifampicin, Pyrazinamide, Isoniazid, Ethambutol, Moxifloxacin, Linezolid",
+                                                          "Rifampicin, Pyrazinamide, Isoniazid, Ethambutol, Moxifloxacin",
+                                                          "Rifampicin, Pyrazinamide, Isoniazid, Ethambutol, Streptomycin, Moxifloxacin",
+                                                          "Rifampicin, Isoniazid, Ethambutol, Levofloxacin",
+                                                          "Rifampicin, Isoniazid, Ethambutol, Moxifloxacin",
+                                                          "Rifampicin, Pyrazinamide, Isoniazid") ~ "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone",
+                               regimen == "Others" ~ "Others",
+                               regimen == "Rifampicin, Pyrazinamide, Isoniazid" ~ "2HRZE 4HR",
+                               str_detect(regimen_tb, "Rifabutin") ~ "Rifabutin based",
                                         TRUE ~ regimen_tb)))
 
-checkingIDs <- complete_ch %>% 
-  filter(id %in% c(16388, 91050)) %>% 
-  select(tbd_drug_resist___1:tbd_antim_resist___99)
+tabyl(filteredBOTH.tbtreatment$regimen_tb_group)
 
 #### TB outcome ----------------------------------------------------------------
 
@@ -413,18 +419,18 @@ lab_both <- lab.filtered %>%
   group_by(id) %>% 
   mutate(timepoint = row_number()) %>% 
   ungroup() %>% 
-  select(-cd4date) %>%
-  left_join(filteredBOTH.tbsite %>% select(id, art_start_date, disease_tb, date_tb, presenting_tb), by = "id") %>% 
+  dplyr::select(-cd4date) %>%
+  left_join(filteredBOTH.tbsite %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb), by = "id") %>% 
   mutate(time_diff = as.numeric(labdate - art_start_date, units = "days"))
 
 lab_cd4 <- lab_both %>% 
-  select(-rna, -timepoint) %>% 
+  dplyr::select(-rna, -timepoint) %>% 
   filter(!is.na(cd4)) %>% 
   mutate(timepoint = row_number()) %>% 
   rename(date_cd4 = labdate)
 
 lab_rna <- lab_both %>% 
-  select(-cd4, -timepoint) %>% 
+  dplyr::select(-cd4, -timepoint) %>% 
   filter(!is.na(rna)) %>% 
   mutate(timepoint = row_number()) %>% 
   rename(date_rna = labdate)
@@ -439,12 +445,20 @@ art_ch <- final %>%
          !is.na(born),
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date,
-         eligibility_art ==1) %>% 
+         eligibility_art ==1,
+         recent_tb == 0) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
-  select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art) %>% 
+  dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art) %>% 
   rename(gender = sex)
 
 saveRDS(art_ch, "data_clean/ch/art_ch.rds")
+
+## ART (only not-presenting) ##
+
+art_ch_noTB <- art_ch %>% 
+  filter(presenting_tb == 0)
+
+saveRDS(art_ch_noTB, "data_clean/ch/art_noTB_ch.rds")
 
 ## TB ##
 
@@ -455,7 +469,7 @@ tb_ch <- final %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
-  select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art)
+  dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art)
   
 saveRDS(tb_ch, "data_clean/ch/tb_ch.rds") 
 

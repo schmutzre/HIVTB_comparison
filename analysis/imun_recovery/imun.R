@@ -9,7 +9,9 @@ pacman:: p_load(
   lme4,
   lmerTest,
   mgcv,
-  gridExtra
+  gridExtra, 
+  wesanderson,
+  ggpubr
 )
 
 source("utils/plot.R")
@@ -28,13 +30,14 @@ cd4_ch <- readRDS("data_clean/ch/cd4_ch.rds")%>%
 rna_rsa <- readRDS("data_clean/rsa/rna_rsa.rds")%>% 
   mutate(id = as.factor(id),
          cohort = as.factor("RSA"))
+
 cd4_rsa <- readRDS("data_clean/rsa/cd4_rsa.rds") %>% 
   mutate(id = as.factor(id),
          cohort = as.factor("RSA"))
 
-cd4 <- rbind(cd4_ch %>% select(-timepoint),
-             cd4_rsa %>% select(-timepoint)) %>% 
-  filter(time_diff > -60 & time_diff < 365) %>% 
+cd4 <- rbind(cd4_ch %>% dplyr::select(-timepoint),
+             cd4_rsa %>% dplyr::select(-timepoint)) %>% 
+  filter(time_diff >= 0 & time_diff < 365) %>% 
   mutate(
     group_30days = as.integer((time_diff %/% 30) + 1),
     cd4_trans = sqrt(cd4))
@@ -45,9 +48,9 @@ cd4_npres <- cd4 %>%
 cd4_pres <- cd4 %>% 
   filter(presenting_tb == 1)
 
-rna <- rbind(rna_ch %>% select(-timepoint),
-             rna_rsa %>% select(-timepoint)) %>% 
-  filter(time_diff > -60 & time_diff < 365) %>% 
+rna <- rbind(rna_ch %>% dplyr::select(-timepoint),
+             rna_rsa %>% dplyr::select(-timepoint)) %>% 
+  filter(time_diff >= 0 & time_diff < 365) %>% 
   mutate(group_30days = as.integer((time_diff %/% 30) + 1),
          rna_trans = log10(rna + 1))
 
@@ -61,11 +64,11 @@ rna_pres <- rna %>%
 
 ### cd4 ###
 
-m.cd4_npres <- gam(cd4 ~ s(time_diff, k = 4, by = cohort), 
+m.cd4_npres <- gam(cd4 ~ s(time_diff, k = 3, by = cohort), 
              data = cd4_npres, 
              method = "REML")
 
-m.cd4_pres <- gam(cd4 ~ s(time_diff, k = 4, by = cohort), 
+m.cd4_pres <- gam(cd4 ~ s(time_diff, k = 3, by = cohort), 
                    data = cd4_pres, 
                    method = "REML")
 
@@ -196,18 +199,44 @@ ggplot(rec.rna, aes(x = time_diff, y = residuals.rna)) +
 
 # I calculate the simultaneous CI instead of point-wise https://fromthebottomoftheheap.net/2016/12/15/simultaneous-interval-revisited/
 
-## cd4 ##
+### cd4 ####
 
-## not presenting
+## not presenting ----
+
+# fit only #
+
+trend_cd4_fit_np <- plot_trend(m.cd4_npres, cd4_npres) +
+  ylab("not presenting with TB") +
+  geom_hline(yintercept = 350, linetype = "dotted") +
+  coord_cartesian(ylim = c(0,600),
+                  xlim = c(0,360))+
+  xlab("Days since ART start")
+
+trend_cd4_fit_np
+
+# fit + raw #
 
 trend_cd4_npres <- plot_trend.raw.cd4(m.cd4_npres, cd4_npres) +
   facet_wrap(~cohort) +
   ylab("not presenting with TB")+
   coord_cartesian(ylim = c(0,2000))
-  
+
 trend_cd4_npres
 
-## presenting
+## presenting ----
+
+# fit only #
+
+trend_cd4_fit_p <- plot_trend(m.cd4_pres, cd4_pres) +
+  ylab("presenting with TB") +
+  geom_hline(yintercept = 350, linetype = "dotted") +
+  coord_cartesian(ylim = c(0,600),
+                  xlim = c(0,360)) +
+  theme(axis.title.x = element_blank())
+
+trend_cd4_fit_p
+
+# fit + raw #
 
 trend_cd4_pres <- plot_trend.raw.cd4(m.cd4_pres, cd4_pres) +
   facet_wrap(~cohort) +
@@ -217,24 +246,45 @@ trend_cd4_pres <- plot_trend.raw.cd4(m.cd4_pres, cd4_pres) +
 
 trend_cd4_pres
 
-## combine
+## combine ----
+
+# fit only #
+
+fit_cd4 <- ggarrange(trend_cd4_fit_p, trend_cd4_fit_np, ncol = 1)
+
+fit_cd4
+
+ggsave(plot = fit_cd4, filename = "results/slopes/cd4_fit.png", 
+       width = 16, height = 11, units = "cm")
+
+# fit + raw #
 
 trend_cd4 <- ggarrange(trend_cd4_npres, 
                              trend_cd4_pres, 
                              ncol = 1) %>% 
   annotate_figure(bottom = "Days after ART start",
                   left = "cd4")
-
 trend_cd4
 
 ggsave(plot = trend_cd4, filename = "results/slopes/cd4.png", 
        width = 16, height = 11, units = "cm")
 
-# ------------------------- 
+### rna ####
 
-## rna ##
+## not presenting ----
 
-## not presenting
+# fit only # 
+
+trend_rna_fit_np <- plot_trend(m.rna_npres, rna_npres) +
+  ylab(" not presenting with TB") +
+  geom_hline(yintercept = log10(400), linetype = "dotted") +
+  coord_cartesian(ylim = c(0,8),
+                  xlim = c(0,360)) +
+  theme(axis.title.x = element_blank())
+
+trend_rna_fit_np
+
+# fit + raw #
 
 trend_rna_npres <- plot_trend.raw.rna(m.rna_npres, rna_npres) +
   facet_wrap(~cohort) +
@@ -244,6 +294,19 @@ trend_rna_npres
 
 ## presenting
 
+# fit only # 
+
+trend_rna_fit_p <- plot_trend(m.rna_pres, rna_pres) +
+  ylab("presenting with TB") +
+  geom_hline(yintercept = log10(400), linetype = "dotted") +
+  coord_cartesian(ylim = c(0,8),
+                  xlim = c(0,360)) +
+  xlab("Days since ART start")
+
+trend_rna_fit_p
+
+# fit + raw #
+
 trend_rna_pres <- plot_trend.raw.rna(m.rna_pres, rna_pres) +
   facet_wrap(~cohort) +
   theme(strip.text.x = element_blank(), strip.background = element_blank())+
@@ -252,6 +315,19 @@ trend_rna_pres <- plot_trend.raw.rna(m.rna_pres, rna_pres) +
 trend_rna_pres
 
 ## combine
+
+# fit only # 
+
+fit_rna <- ggarrange(trend_rna_fit_p, trend_rna_fit_np, ncol = 1)
+
+fit_rna
+
+ggsave(plot = fit_rna, filename = "results/slopes/rna_fit.png", 
+       width = 16, height = 11, units = "cm")+
+  
+fit_rna
+
+# fit + raw #
 
 trend_rna <- ggarrange(trend_rna_npres, 
                        trend_rna_pres, 

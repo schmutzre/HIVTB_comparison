@@ -42,18 +42,25 @@ plot_trend <- function(model, data, N = 10000) {
                     uprP = fit + (2 * se.fit),
                     lwrP = fit - (2 * se.fit),
                     uprS = fit + (crit * se.fit),
-                    lwrS = fit - (crit * se.fit))
+                    lwrS = fit - (crit * se.fit)) %>% 
+    mutate(cohort = fct_relevel(cohort, "RSA"))
+  
+  pred$lwrS_adj <- pmax(pred$lwrS, 0) # lower end of Confidence band shouldnt go below 0 (not possible)
   
   # Plot the trend with ggplot2
-  plot_name <- deparse(substitute(model))
   trend.plot <- ggplot(pred, aes(x = time_diff)) +
-    geom_ribbon(aes(ymin = lwrS, ymax = uprS), alpha = 0.2, fill = "red") +
-    geom_line(aes(y = fit), color = "red") +
+    geom_ribbon(aes(ymin = lwrS_adj, ymax = uprS, fill = cohort), alpha = 0.2) +
+    geom_line(aes(y = fit, color = cohort)) +
     theme_classic()+
     scale_x_continuous(expand = c(0,0))+
-    scale_y_continuous(expand = c(0,0))+
+    scale_y_continuous(expand = c(0,0)) +
+    geom_vline(xintercept = 0, linetype = "dotted")+
     theme(panel.grid.major = element_blank(), 
-          panel.grid.minor = element_blank())
+          panel.grid.minor = element_blank(),
+          legend.position = "none") +
+    scale_color_manual(values = wes_palette("Moonrise2")) +
+    scale_fill_manual(values = wes_palette("Moonrise2")) +
+    coord_cartesian(ylim = c(0,800))
   
   return(trend.plot)
 }

@@ -3,6 +3,7 @@
 library(dplyr)
 library(lubridate)
 library(janitor)
+library(stringr)
 
 #### Cleaning the separate data files and preparing to then join them ----------
 
@@ -20,10 +21,9 @@ tblBAS <- read.csv("data_raw/RSA/tblBAS_incl_naive_imp2.csv") %>%
          age_at_art_start = interval(birth_d, recart_d) %/% years(1),
          sex = as.factor(case_when(sex == 1 ~ "Male",
                          sex == 2 ~ "Female",
-                         TRUE ~ NA))) %>%  
+                         TRUE ~ NA))) %>%   
   rename(born = birth_d, 
          art_start_date = recart_d) %>% 
-  distinct(patient, .keep_all = TRUE) %>% 
   select(patient, enrol_d, born, sex, art_start_date, age_at_art_start, naive_y, naive_y_imp)
 
 tblNAIVE <- tblBAS %>% 
@@ -99,15 +99,17 @@ tbltb_res <- read.csv("data_raw/RSA/tbltb_res.csv") %>%
   distinct(patient, .keep_all = TRUE) %>%
   select(patient, resistance_tb_any, resistance_tb_mdr)
 
-## Med Table ##
+## Meds ##
+
+tblMED <- read.csv("data_raw/RSA/tblMED.csv") %>% 
+  mutate(med_sd = as.Date(med_sd, format = "%Y-%m-%d")) %>% 
+  select(patient, med_id, med_sd)
 
 #' read.csv("data_raw/RSA/")
 #' Chido will send a tblMED which includes all meds given, we can use this to 
 #' the TB treatment in tblTB and also the ART treatment maybe
 
 ## TB table ##
-
-#' Chido will send us a new TB table
 
 tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>% 
   group_by(patient) %>%
@@ -118,7 +120,6 @@ tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>%
   rename(date_tb = reg_dmy, 
          regimen_tb = regimen,
          site_tb = class) %>% 
-  select(patient, date_tb, regimen_tb, site_tb, tb_outcome) %>% 
   mutate(across(c(date_tb, site_tb), ~na_if(.x, "")),
          date_tb = as.Date(date_tb, format = "%Y-%m-%d"),
          disease_tb = as.factor(1),
@@ -130,8 +131,6 @@ tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>%
                                           regimen_tb == 3 ~ "2HRZ 4HR",
                                           regimen_tb == 4 ~ "Others",
                                           TRUE ~ NA)),
-         regimen_tb_group = as.factor(case_when(regimen_tb %in% c("2HRZE 4HR", "2HRZ 4HR") ~ "Standard",
-                                                TRUE ~ regimen_tb)),
          outcome_tb = case_when(tb_outcome == 1 ~ "Completed",
                                 tb_outcome == 2 ~ "Cured",
                                 tb_outcome == 3 ~ "Failed",
@@ -139,8 +138,60 @@ tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>%
                                 tb_outcome == 5 ~ "Defaulted",
                                 tb_outcome == 6 ~ "Treatment ongoing",
                                 tb_outcome == 7 ~ "Died",
-                                TRUE ~ NA))
+                                TRUE ~ NA)) %>% 
+  distinct(patient, .keep_all = TRUE) %>%
+  left_join(tblMED, by = "patient") %>%
+  mutate(diff = as.numeric(difftime(med_sd, date_tb, units = "days"))) %>%
+  filter(!is.na(med_sd), abs(diff) <= 180) %>%
+  arrange(patient, abs(diff)) %>%
+  group_by(patient) %>%
+  mutate(abs_diff = abs(diff),
+         min_diff = min(abs_diff), # find the smallest abs_diff for each patient
+         within_30_days = abs_diff <= (min_diff + 30)) %>%
+  # Keep rows where diff is within 30 days of the smallest diff
+  filter(within_30_days) %>%
+  mutate(medication_name = case_when(
+    med_id == "J04AB02" ~ "Rifampin",
+    med_id == "J04AB04" ~ "Rifabutin",
+    med_id == "J04AB05" ~ "Rifapentine",
+    med_id == "J04AC01" ~ "Isoniazid",
+    med_id == "J04AK01" ~ "Pyrazinamide",
+    med_id == "J04AK02" ~ "Ethambutol",
+    med_id == "J04AM02" ~ "rifampicin and isoniazid",
+    med_id == "J04AM03" ~ "ethambutol and isoniazid",
+    med_id == "J04AM05" ~ "rifampicin, pyrazinamide and isoniazid",
+    med_id == "J04AM06" ~ "rifampicin, pyrazinamide, ethambutol and isoniazid",
+    med_id == "J01GA01" ~ "Streptomycin",
+    med_id == "J01GB06" ~ "Amikacine",
+    med_id == "J01MA12" ~ "Levofloxacin",
+    med_id == "J01MA14" ~ "Moxifloxacin",
+    med_id == "J04BA01" ~ "Clofazimine",
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(
+    regimen_tb = case_when(
+      !is.na(regimen_tb) ~ as.character(regimen_tb),  # Keep as is if not NA
+      TRUE ~ paste(sort(unique(na.omit(medication_name))), collapse = "; ")  # Replace with concatenated medication_name
+    ),
+    regimen_tb = as.factor(regimen_tb),
+    regimen_tb = na_if(regimen_tb, ""),
+    regimen_tb_group = regimen_tb,
+    regimen_tb_group = as.factor(case_when(regimen_tb %in% c("2HRZE 4HR") ~ "Standard",
+                                           str_detect(regimen_tb, "Rifabutin") ~ "Rifabutin based",
+                                           regimen_tb == "2HRZES 1HRZE 5HRE" ~ "2HRZES 1HRZE 5HRE",
+                                           regimen_tb == "2HRZ 4HR" ~ "2HRZ 4HR",
+                                           regimen_tb == "Others" ~ "Others",
+                                           str_detect(regimen_tb, "Ethambutol") ~ "Standard",
+                                           str_detect(regimen_tb, "Pyrazinamide") ~ "Standard",
+                                           str_detect(regimen_tb, "Isoniazid") ~ "Standard", #the last three might be a bit arbitrary, but before adding all the JO1 drugs, i would have added all them to standard
+                                           !is.na(regimen_tb) ~ "Others",
+                                           TRUE ~ regimen_tb))) %>%
+  slice(1) %>%
+  ungroup() %>% 
+  dplyr::select(patient, date_tb, regimen_tb, disease_tb, regimen_tb_group, site_tb, outcome_tb)
 
+flextable(tabyl(tblTB$regimen_tb_group))
+flextable(tabyl(tblTB$regimen_tb))
 
 ## WHO stage ##
 
@@ -159,13 +210,11 @@ tblVIS <- read.csv("data_raw/RSA/tblVIS.csv") %>%
   slice(1) %>%
   ungroup() %>%
   select(patient, who_stage)
-
-
   
 ## CD4 baseline values ##
 
 baseline_cd4 <- tblLAB_CD4 %>% 
-  left_join(tblBAS %>% select(patient, art_start_date), 
+  left_join(tblBAS %>% dplyr::select(patient, art_start_date), 
             by = "patient") %>% 
   mutate(cd4_baseline = as.numeric(ifelse(date_cd4 >= (art_start_date - 180) & date_cd4 <= (art_start_date + 30), 
                                cd4, NA))) %>%
@@ -182,12 +231,12 @@ baseline_cd4 <- tblLAB_CD4 %>%
       TRUE ~ NA
     )
   )) %>% 
-  select(patient, cd4_baseline, cd4_group)
+  dplyr::select(patient, cd4_baseline, cd4_group)
 
 ## RNA baseline values ##
 
 baseline_rna <- tblLAB_RNA %>% 
-    left_join(tblBAS %>% select(patient, art_start_date), 
+    left_join(tblBAS %>% dplyr::select(patient, art_start_date), 
               relationship = "many-to-many", 
               by = "patient") %>% 
     mutate(rna_baseline = as.numeric(ifelse(date_rna >= (art_start_date - 180) & date_rna <= (art_start_date + 30), 
@@ -205,12 +254,12 @@ baseline_rna <- tblLAB_RNA %>%
           rna_baseline >= 10000 ~ "10000+",
           TRUE ~ NA
         ))) %>% 
-    select(patient, rna_baseline, rna_group)
+    dplyr::select(patient, rna_baseline, rna_group)
 
 ## CD4 @ TB diagnosis ##
   
 tb_cd4 <- tblLAB_CD4 %>% 
-    left_join(tblTB %>% select(patient, date_tb), 
+    left_join(tblTB %>% dplyr::select(patient, date_tb), 
               relationship = "many-to-many", 
               by = "patient") %>% 
     mutate(tb_diag_cd4 = ifelse(date_cd4 >= (date_tb - 120) & date_cd4 <= (date_tb + 120), 
@@ -220,12 +269,12 @@ tb_cd4 <- tblLAB_CD4 %>%
     group_by(patient) %>% 
     distinct(patient, .keep_all = TRUE) %>% 
     ungroup() %>% 
-    select(patient, tb_diag_cd4)
+    dplyr::select(patient, tb_diag_cd4)
   
 ## RNA @ TB diagnosis ## 
   
 tb_rna <- tblLAB_RNA %>% 
-    left_join(tblTB %>% select(patient, date_tb), 
+    left_join(tblTB %>% dplyr::select(patient, date_tb), 
               relationship = "many-to-many", 
               by = "patient") %>% 
     mutate(tb_diag_rna = as.numeric(ifelse(date_rna >= (date_tb - 120) & date_rna <= (date_tb + 120), 
@@ -235,7 +284,7 @@ tb_rna <- tblLAB_RNA %>%
     group_by(patient) %>% 
     distinct(patient, .keep_all = TRUE) %>% 
     ungroup() %>% 
-    select(patient, tb_diag_rna)
+    dplyr::select(patient, tb_diag_rna)
   
 ## ART treatment ##
   
@@ -256,7 +305,7 @@ id_to_drug <- tibble(
     "ATV/r", "AZT, 3TC, ABC"))
 
 treatment_art <- tblART %>%
-  left_join(tblBAS %>% select(patient, art_start_date), 
+  left_join(tblBAS %>% dplyr::select(patient, art_start_date), 
             relationship = "many-to-many",
             by = "patient") %>% 
   filter(abs(art_sd - art_start_date) <= 120) %>% 
@@ -301,6 +350,7 @@ treatment_art <- treatment_art %>%
     ),
     regimen = case_when(treatment == "TDF + 3TC/FTC + EFV/NVP" ~ "NNRTI-based",
                         treatment %in% c("TDF + 3TC/FTC + DTG", "AZT + 3TC/FTC + LPV/r") ~ "INSTI-based",
+                        treatment == "ART unspecified" ~ "Other",
                         TRUE ~ NA)
   )
 
@@ -327,12 +377,10 @@ df <- tblBAS %>%
            recent_tb = as.factor(case_when(
              date_tb < art_start_date - 60 & date_tb > art_start_date - 360 ~ 1,
              TRUE ~ 0)),
-           presenting_tb = as.factor(case_when(
-             prevalent_tb == 1 | recent_tb == 1 ~ 1,
-             TRUE ~ 0)),
+           presenting_tb = prevalent_tb,
            last_persontime = as.numeric(case_when(!is.na(exitdate) ~ exitdate - art_start_date,
                                        TRUE ~ last_fup_date - art_start_date))) %>% 
-  select(-enrol_d) %>% 
+  dplyr::select(-enrol_d, -naive_y, -naive_y_imp) %>% 
   distinct(patient, .keep_all = TRUE) %>%
   rename(id = patient) %>% 
   filter(born < exitdate | is.na(exitdate))
@@ -358,6 +406,8 @@ df_tb <- df %>%
 
 saveRDS(df_tb, "data_clean/rsa/tb_rsa.rds")
 
+tabyl(df_tb$regimen_tb_group)
+
 ## ART ##  
 
 df_art <- df %>% 
@@ -365,12 +415,21 @@ df_art <- df %>%
   filter(between(art_start_date, as.Date("2010-01-01"), as.Date("2022-12-31")),
          sex != 9,
          !is.na(born) & !is.na(art_start_date),
-         age_at_art_start >= 16) %>% 
+         age_at_art_start >= 16,
+         recent_tb == 0) %>% 
   rename(gender = sex)
   
 saveRDS(df_art, "data_clean/rsa/art_rsa.rds")
 
+
 #flextable::flextable(tabyl(df_art$treatment))
+
+## ART (only not-presenting) ##
+
+df_art_noTB <- df_art %>% 
+  filter(presenting_tb == 0)
+
+saveRDS(df_art_noTB, "data_clean/rsa/art_noTB_rsa.rds")
 
 #### Lab data ------------------------------------------------------------------
 
@@ -402,4 +461,3 @@ lab_rna <- tblLAB_RNA %>%
   rename(id = patient)
   
 saveRDS(lab_rna, "data_clean/rsa/rna_rsa.rds")
-
