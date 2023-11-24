@@ -7,6 +7,93 @@ rmvn <- function(n, mu, sig) { ## MVN random deviates
   t(mu + L %*% matrix(rnorm(m * n), m, n))
 }
 
+pred_trend <- function(model, data, N = 10000) {
+  
+  # Compute Vb, the covariance matrix of the random effects
+  Vb <- vcov(model, unconditional = TRUE)
+  
+  # Generate new data for predictions
+  newd <- with(data, expand.grid(time_diff = seq(min(time_diff), max(time_diff), length = 200),
+                                 cohort = levels(cohort),
+                                 KEEP.OUT.ATTRS = FALSE))
+  
+  # Compute predicted values and standard errors
+  pred <- predict(model, newd, se.fit = TRUE)
+  se.fit <- pred$se.fit
+  
+  # Simulate the conditional distribution of the model's random effects
+  BUdiff <- rmvn(N, mu = rep(0, nrow(Vb)), sig = Vb)
+  
+  # Compute linear predictor matrix
+  Cg <- predict(model, newd, type = "lpmatrix")
+  
+  # Simulate deviance residuals
+  simDev <- Cg %*% t(BUdiff)
+  absDev <- abs(sweep(simDev, 1, se.fit, FUN = "/"))
+  
+  # Compute the maximum absolute scaled deviance (MASD) for each simulation
+  masd <- apply(absDev, 2L, max)
+  
+  # Compute the 95th percentile of the MASD distribution
+  crit <- quantile(masd, prob = 0.95, type = 8)
+  
+  # Add the computed intervals to the prediction data frame
+  pred <- transform(cbind(data.frame(pred), newd),
+                    uprP = fit + (2 * se.fit),
+                    lwrP = fit - (2 * se.fit),
+                    uprS = fit + (crit * se.fit),
+                    lwrS = fit - (crit * se.fit)) %>% 
+    mutate(cohort = fct_relevel(cohort, "RSA"))
+  
+  pred$lwrS_adj <- pmax(pred$lwrS, 0) # lower end of Confidence band shouldnt go below 0 (not possible)
+  
+  return(pred)
+  
+}
+
+pred_trend_single <- function(model, data, N = 10000) {
+  
+  # Compute Vb, the covariance matrix of the random effects
+  Vb <- vcov(model, unconditional = TRUE)
+  
+  # Generate new data for predictions
+  newd <- with(data, expand.grid(time_diff = seq(min(time_diff), max(time_diff), length = 200),
+                                 KEEP.OUT.ATTRS = FALSE))
+  
+  # Compute predicted values and standard errors
+  pred <- predict(model, newd, se.fit = TRUE)
+  se.fit <- pred$se.fit
+  
+  # Simulate the conditional distribution of the model's random effects
+  BUdiff <- rmvn(N, mu = rep(0, nrow(Vb)), sig = Vb)
+  
+  # Compute linear predictor matrix
+  Cg <- predict(model, newd, type = "lpmatrix")
+  
+  # Simulate deviance residuals
+  simDev <- Cg %*% t(BUdiff)
+  absDev <- abs(sweep(simDev, 1, se.fit, FUN = "/"))
+  
+  # Compute the maximum absolute scaled deviance (MASD) for each simulation
+  masd <- apply(absDev, 2L, max)
+  
+  # Compute the 95th percentile of the MASD distribution
+  crit <- quantile(masd, prob = 0.95, type = 8)
+  
+  # Add the computed intervals to the prediction data frame
+  pred <- transform(cbind(data.frame(pred), newd),
+                    uprP = fit + (2 * se.fit),
+                    lwrP = fit - (2 * se.fit),
+                    uprS = fit + (crit * se.fit),
+                    lwrS = fit - (crit * se.fit)) 
+  
+  pred$lwrS_adj <- pmax(pred$lwrS, 0) # lower end of Confidence band shouldnt go below 0 (not possible)
+  
+  return(pred)
+  
+}
+
+
 plot_trend <- function(model, data, N = 10000) {
   
   # Compute Vb, the covariance matrix of the random effects

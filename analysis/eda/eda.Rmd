@@ -22,6 +22,7 @@ library(png)
 library(janitor)
 library(flextable)
 library(forcats)
+library(biostatUZH)
 ```
 
 # Table 1
@@ -153,6 +154,15 @@ table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who
        render.categorical = my.render.cat)
 ```
 
+```{r}
+table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group_nres | cohort, data = complete,
+       topclass="Rtable1-zebra",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) or <a recent history of TB (diagnosis 2-12 months before ART start)> <-- [I actually also excluded those with recent history now If I understood your mails correctly] with patients with no history of TB.",
+       render.continuous = my.render.cont,
+       render.categorical = my.render.cat)
+```
+
+
 ### Top 5 most used ART treatments per cohort
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
@@ -252,7 +262,6 @@ table1(~ agegroups + sex + region + site_tb + regimen_tb_group_nres + tb_diag_cd
 ```
 
 # Table 3
-
 ```{r, include=FALSE}
 
 noTB <- readRDS("../../data_clean/art_noTB.rds")
@@ -325,6 +334,42 @@ table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage | c
        render.continuous = my.render.cont,
        render.categorical = my.render.cat)
 ```
+
+## Median follow-up time
+
+RSA:
+
+```{r}
+lft_rsa <- rsa %>% 
+  dplyr::select(last_persontime) %>% 
+  summarise(median = median(last_persontime, na.rm = T),
+            l_q = quantile(last_persontime, 0.25, na.rm = T),
+            u_q = quantile(last_persontime, 0.75, na.rm = T))
+
+lft_ch <- ch %>% 
+  dplyr::select(last_persontime) %>% 
+  summarise(median = median(last_persontime, na.rm = T),
+            l_q = quantile(last_persontime, 0.25, na.rm = T),
+            u_q = quantile(last_persontime, 0.75, na.rm = T))
+```
+
+## All-cause mortality rate
+
+```{r}
+complete_exit <- complete %>%
+  mutate(exit = case_when(!is.na(exitdate) ~ 1, TRUE ~ 0)) %>%
+  group_by(cohort, presenting_tb) %>%
+  summarise(n = n(),  # Total count in each group
+            exits = sum(exit),  # Count of exits in each group
+            wilson_ci = list(wilson(exits, n)), .groups = 'drop') %>% 
+  unnest_wider(wilson_ci) %>%  # Convert the list to separate columns
+  mutate(
+    prop = round(prop * 100, 2),  # Convert to percentage
+    lower = round(lower * 100, 2),       # Convert to percentage
+    upper = round(upper * 100 ,2)        # Convert to percentage
+  )
+```
+
 
 # Figures
 
