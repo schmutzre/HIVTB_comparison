@@ -62,8 +62,9 @@ cd4_pres_ch <- cd4 %>%
 m.cd4_rsa_npres <- gam(cd4 ~ s(time_diff, bs = "ad", k = 8),
                        data = cd4_npres_rsa,
                        method = "REML")
+gam
 
-m.cd4_ch_npres <- gam(cd4 ~ s(time_diff, k = 7, bs = "cr"), 
+m.cd4_ch_npres <- gam(cd4 ~ s(time_diff, k = 6, bs = "cr"), 
                       data = cd4_npres_ch, 
                       method = "REML")
 
@@ -186,14 +187,15 @@ kaplan_plot_tot <- km_plot2$plot +
   theme(legend.title = element_blank(), plot.title = element_text(size = 10,
                                                                   face = "bold"), # Set title properties here
         plot.title.position = "plot") +
-  labs(title = "b | Probability of survival after ART start")
+  labs(title = "b | Probability of survival after ART start",
+       caption = "Mean as lines, 95%-CI as ribbons")
 
 kaplan_plot_tot
 
 ##### Join together ------------------------------------------------------------
 
 arranged_plots <- ggpubr::ggarrange(cd4_pred1, kaplan_plot_tot, ncol = 1, common.legend = F) 
-
+arranged_plots
 ggsave(arranged_plots, filename = "results/conference.png", 
        width = 12.7, height = 12.7, units = "cm", )
 
