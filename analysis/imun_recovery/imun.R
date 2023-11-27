@@ -13,7 +13,8 @@ pacman:: p_load(
   wesanderson,
   ggpubr,
   survival,
-  survminer
+  survminer,
+  scam
 )
 
 source("utils/plot.R")
@@ -39,7 +40,7 @@ cd4_rsa <- readRDS("data_clean/rsa/cd4_rsa.rds") %>%
 
 cd4 <- rbind(cd4_ch %>% dplyr::select(-timepoint),
              cd4_rsa %>% dplyr::select(-timepoint)) %>% 
-  filter(time_diff >= 0 & time_diff < 365) %>% 
+  filter(time_diff >= -120 & time_diff < 420) %>% 
   mutate(
     group_30days = as.integer((time_diff %/% 30) + 1),
     cd4_trans = sqrt(cd4))
@@ -67,7 +68,7 @@ rna_pres <- rna %>%
 ### cd4 ###
 #+ s(id, bs = "re")
 
-m.cd4_npres <- gam(cd4 ~ s(time_diff, k = 3, by = cohort, bs = "cr"), 
+m.cd4_npres <- gam(cd4 ~ s(time_diff, k = 10, by = cohort, bs = "ps"), 
                    data = cd4_npres, 
                    method = "REML")
 
@@ -84,6 +85,60 @@ m.rna_npres <- gam(rna_trans ~ s(time_diff, k = 4, by = cohort, bs = "cr"),
 m.rna_pres <- gam(rna_trans ~ s(time_diff, k = 4, by = cohort, bs = "cr"), 
              data = rna_pres, 
              method = "REML")
+
+
+#### models - nico ####
+
+m.cd4_npres <- scam(cd4 ~ s(time_diff, k = 3, by = cohort, bs = "cr"), 
+                   data = cd4_npres)
+
+m.cd4_pres <- gam(cd4 ~ s(time_diff, k = 3, by = cohort, bs = "cr"), 
+                  data = cd4_pres)
+
+pred_data <- expand.grid(cohort = c("RSA", "CH"), time_diff = seq(-90, 365, 1)) %>% arrange(cohort)
+
+cd4_pred_npres <- predict(m.cd4_npres, type = "response", se.fit = T, newdata = pred_data) %>%
+  data.frame() %>%
+  unnest(cols = c(fit, se.fit)) %>%
+  mutate(time_diff = pred_data$time_diff,
+         cohort = rep(c("South Africa", "Switzerland"), each = nrow(.) / 2),
+         upper = fit + qnorm(.975) * se.fit,
+         lower = fit - qnorm(.975) * se.fit)
+
+cd4_pred_pres <- predict(m.cd4_pres, type = "response", se.fit = T, newdata = pred_data) %>%
+  data.frame() %>%
+  unnest(cols = c(fit, se.fit)) %>%
+  mutate(time_diff = pred_data$time_diff,
+         cohort = rep(c("South Africa", "Switzerland"), each = nrow(.) / 2),
+         upper = fit + qnorm(.975) * se.fit,
+         lower = fit - qnorm(.975) * se.fit)
+
+
+cd4_pred <- rbind(cd4_pred_npres %>% mutate(type = "Not presenting with TB"), 
+                  cd4_pred_pres %>% mutate(type = "Presenting with TB"))
+
+cd4_pred_pl <- cd4_pred %>%
+  ggplot(mapping = aes(x = time_diff)) +
+  facet_wrap(vars(type)) +
+  geom_ribbon(mapping = aes(ymin = lower, ymax = upper, fill = cohort), alpha = 0.2) +
+  geom_line(mapping = aes(y = fit, color = cohort)) +
+  geom_hline(yintercept = 350, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  scale_x_continuous(expand = c(0,0), limits = c(-60, 360), breaks = seq(-60, 360, 60)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,600), breaks = seq(0, 600, 100)) +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  labs(x = "Days after ART start",
+       y = expression("CD4 count (cells/µl)"),
+       title = "a | CD4 count showing immunological recovery after ART start") +
+  theme_classic(base_size = 10) +
+  theme(legend.position = "top", legend.title = element_blank(),
+        panel.spacing.x = unit(.66, "cm"),
+        plot.title.position = "plot",
+        plot.title = element_text(face = 2, size = 10)) 
+  
+
+cd4_pred_pl
 
 #### data exploration ----------------------------------------------------------
 
@@ -102,6 +157,13 @@ summary_stats_cd4 <- cd4 %>%
     se = sd(cd4_trans, na.rm = TRUE) / sqrt(n()),
     sd = sd(cd4_trans, na.rm = TRUE)
   )
+
+summary_stats_cd4 %>%
+  filter(cohort == "RSA",
+         group_30days > 1) %>%
+  ggplot(aes(x = group_30days, y = n, fill = cohort)) +
+  facet_wrap(~ presenting_tb) +
+  geom_bar(stat = "identity", position = "dodge")
 
 iqr_cd4 <- ggplot(summary_stats_cd4, aes(x = time_diff_midpoint, y = md_trans_cd4)) +
   geom_point() +
@@ -701,29 +763,10 @@ kaplan_plot_tot
 
 ### Join them together
 
-arranged_plots <- ggpubr::ggarrange(cd4_pred1, kaplan_plot_tot, ncol = 1, common.legend = F) 
-
-arranged_plots
-
-library(ggpubr)
-library(grid)
-
-annotated_plots <- annotate_figure(arranged_plots,
-                                   bottom = text_grob("Figure: (a) CD4 count showing immunological recovery after ART start for patients presenting with/without TB. \n(b) Probability of survival after ART start.", size = 10,
-                                                      vjust = 0.2, hjust = 0, x = 0, lineheight = 1))
-
-annotated_plots <- annotate_figure(arranged_plots,
-                                   bottom = grobTree(
-                                     textGrob(expression(paste(bold("Figure: (a)"), " CD4 count showing immunological recovery after ART start for patients presenting with/without TB.")), 
-                                              x = unit(0, "npc"), y = unit(2.5, "npc"), hjust = 0, vjust = 0, 
-                                              gp = gpar(fontsize = 10, lineheight = 0.8)),
-                                     textGrob(expression(paste(bold("(b)"), " Probability of survival after ART start.")), 
-                                              x = unit(0, "npc"), y = unit(1.0, "npc"), hjust = 0, vjust = 0, 
-                                              gp = gpar(fontsize = 10, lineheight = 0.8))
-                                   ))
-
-
-annotated_plots
+arranged_plots <- ggpubr::ggarrange(cd4_pred_pl, 
+                                    kaplan_plot_tot + labs(caption = bquote(italic("Mean as lines, 95%-CI as ribbons."))) +
+                                      theme(plot.caption = element_text(size = 8, vjust = -1)), 
+                                    ncol = 1, common.legend = F) 
 
 ggsave(arranged_plots, filename = "results/conference.png", 
        width = 12.7, height = 12.7, units = "cm", )
