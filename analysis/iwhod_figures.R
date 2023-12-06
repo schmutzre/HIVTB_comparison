@@ -13,7 +13,8 @@ pacman:: p_load(
   wesanderson,
   ggpubr,
   survival,
-  survminer
+  survminer,
+  scam
 )
 
 source("utils/plot.R")
@@ -34,7 +35,7 @@ cd4_rsa <- readRDS("data_clean/rsa/cd4_rsa.rds") %>%
 
 cd4 <- rbind(cd4_ch %>% dplyr::select(-timepoint),
              cd4_rsa %>% dplyr::select(-timepoint)) %>% 
-  filter(time_diff >= -60 & time_diff < 365) %>% 
+  filter(time_diff >= -90 & time_diff <= 360) %>% 
   mutate(cd4_trans = sqrt(cd4))
 
 ## model / plot ##
@@ -59,98 +60,57 @@ cd4_pres_ch <- cd4 %>%
 
 # model definition #
 
-m.cd4_rsa_npres <- gam(cd4 ~ s(time_diff, bs = "ad", k = 8),
-                       data = cd4_npres_rsa,
-                       method = "REML")
-gam
+m.cd4_npres <- scam(cd4 ~ s(time_diff, k = 3, by = cohort, bs = "cr"), 
+                    data = cd4_npres)
 
-m.cd4_ch_npres <- gam(cd4 ~ s(time_diff, k = 6, bs = "cr"), 
-                      data = cd4_npres_ch, 
-                      method = "REML")
+m.cd4_pres <- gam(cd4 ~ s(time_diff, k = 3, by = cohort, bs = "cr"), 
+                  data = cd4_pres)
 
-m.cd4_rsa_pres <- gam(cd4 ~ s(time_diff, k = 6, bs = "cr"), 
-                      data = cd4_pres_rsa, 
-                      method = "REML")
+pred_data <- expand.grid(cohort = c("RSA", "CH"), time_diff = seq(-90, 365, 1)) %>% arrange(cohort)
 
-m.cd4_ch_pres <- gam(cd4 ~ s(time_diff, k = 6, bs = "cr"), 
-                     data = cd4_pres_ch, 
-                     method = "REML")
+cd4_pred_npres <- predict(m.cd4_npres, type = "response", se.fit = T, newdata = pred_data) %>%
+  data.frame() %>%
+  unnest(cols = c(fit, se.fit)) %>%
+  mutate(time_diff = pred_data$time_diff,
+         cohort = rep(c("South Africa", "Switzerland"), each = nrow(.) / 2),
+         upper = fit + qnorm(.975) * se.fit,
+         lower = fit - qnorm(.975) * se.fit)
 
-# model prediction #
+cd4_pred_pres <- predict(m.cd4_pres, type = "response", se.fit = T, newdata = pred_data) %>%
+  data.frame() %>%
+  unnest(cols = c(fit, se.fit)) %>%
+  mutate(time_diff = pred_data$time_diff,
+         cohort = rep(c("South Africa", "Switzerland"), each = nrow(.) / 2),
+         upper = fit + qnorm(.975) * se.fit,
+         lower = fit - qnorm(.975) * se.fit)
 
-cd4_rsa_np <- pred_trend_single(m.cd4_rsa_npres, cd4_npres_rsa) %>% 
-  mutate(tb = factor("Not presenting TB"),
-         cohort = factor("RSA"))
+cd4_pred <- rbind(cd4_pred_npres %>% mutate(type = "Not presenting with TB"), 
+                  cd4_pred_pres %>% mutate(type = "Presenting with TB"))
 
-cd4_ch_np <- pred_trend_single(m.cd4_ch_npres, cd4_npres_ch) %>% 
-  mutate(tb = factor("Not presenting TB"),
-         cohort = factor("CH"))
-
-cd4_rsa_p <- pred_trend_single(m.cd4_rsa_pres, cd4_pres_rsa) %>% 
-  mutate(tb = factor("Presenting TB"),
-         cohort = factor("RSA"))  
-
-cd4_ch_p <- pred_trend_single(m.cd4_ch_pres, cd4_pres_ch) %>% 
-  mutate(tb = factor("Presenting TB"),
-         cohort = factor("CH"))
-
-# model plotting #
-
-cd4_pred_single <- rbind(cd4_rsa_np, cd4_ch_np, cd4_rsa_p, cd4_ch_p)
-
-cd4_pred1 <- ggplot(cd4_pred_single, aes(x = time_diff)) +
-  geom_ribbon(aes(ymin = lwrS_adj, ymax = uprS, fill = cohort), alpha = 0.2) +
-  geom_line(aes(y = fit, color = cohort)) +
-  theme_classic(base_size = 10) +
-  scale_y_continuous(expand = c(0,0), breaks = seq(0,700,100)) +
-  scale_x_continuous(expand = c(0,0), breaks = seq(-60,360,60)) +
-  geom_vline(xintercept = 0, linetype = "dotted")+
-  theme(legend.position = "bottom", legend.title = element_blank(), 
-        plot.title = element_text(size = 10, face = "bold"), # Set title properties here
-        plot.title.position = "plot") +
-  scale_color_manual(values = wes_palette("Moonrise2"), labels = c("South Africa", "Switzerland")) +
-  scale_fill_manual(values = wes_palette("Moonrise2"), labels = c("South Africa", "Switzerland")) +
-  coord_cartesian(ylim = c(0,700), xlim = c(-60,380))+
-  facet_wrap(vars(tb)) +
-  geom_hline(yintercept = 350, linetype = "dotted") +
+cd4_pred_pl <- cd4_pred %>%
+  ggplot(mapping = aes(x = time_diff)) +
+  facet_wrap(vars(type)) +
+  geom_ribbon(mapping = aes(ymin = lower, ymax = upper, fill = cohort), alpha = 0.2) +
+  geom_line(mapping = aes(y = fit, color = cohort)) +
+  #geom_hline(yintercept = 350, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  scale_x_continuous(expand = c(0,0), limits = c(-60, 360), breaks = seq(-60, 360, 60)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,600), breaks = seq(0, 600, 100)) +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
   labs(x = "Days after ART start",
        y = expression("CD4 count (cells/µl)"),
-       title = "a | CD4 count showing immunological recovery after ART start for patients presenting with/without TB")
+       title = "a | CD4 count showing immunological recovery after ART start") +
+  theme_classic(base_size = 10) +
+  theme(legend.position = "top", legend.title = element_blank(),
+        panel.spacing.x = unit(.66, "cm"),
+        plot.title.position = "plot",
+        plot.title = element_text(face = 2, size = 10)) 
 
-cd4_pred1
+cd4_pred_pl
 
-# rohwerte rsa non-presenting #
-
-#checking
-rec.cd4 <- cd4_npres_rsa %>% 
-  mutate(
-    group_30days = as.integer((time_diff %/% 30) + 1)
-  )
-
-summary_stats.cd4 <- rec.cd4 %>% 
-  group_by(group_30days) %>% 
-  summarise(
-    median.cd4 = median(cd4, na.rm = TRUE),
-    Q1 = quantile(cd4, 0.25, na.rm = TRUE),
-    Q3 = quantile(cd4, 0.75, na.rm = TRUE),
-    time_diff_midpoint = mean(time_diff, na.rm = TRUE),
-    Qlow = quantile(cd4, 0.05, na.rm = TRUE),
-    Qhigh = quantile(cd4, 0.95, na.rm = TRUE),
-    mean = mean(cd4, na.rm = TRUE),
-    se = sd(cd4, na.rm = TRUE) / sqrt(n()),
-    sd = sd(cd4, na.rm = TRUE)
-  )
-
-IQR.cd4 <- ggplot(summary_stats.cd4, aes(x = time_diff_midpoint, y = median.cd4)) +
-  geom_point() +
-  geom_errorbar(
-    aes(ymin = Q1, ymax = Q3),
-    width = 10
-  ) +
-  labs(x = 'Time Difference (days)', y = 'CD4') +
-  theme_bw() +
-  geom_hline(yintercept = 350)
-IQR.cd4
+ggsave(cd4_pred_pl, filename = "results/cd4_pred.png",
+       width = 12.7, height = 12.7, unit = "cm")
 
 ##### Figure 1b ----------------------------------------------------------------
 
@@ -166,16 +126,57 @@ km <- readRDS("data_clean/art.rds") %>%
 
 SurvObj <- Surv(time = km$last_persontime, event = km$exit == 1)
 
-fit2 <- survfit(SurvObj ~ cohort, data = km)
+fit <- survfit(SurvObj ~ cohort, data = km)
 
 # Plotting
-km_plot2 <- ggsurvplot(fit2, data = km, conf.int = TRUE, 
+km_plot <- ggsurvplot(fit, data = km, conf.int = TRUE, 
                        fun = "pct", 
                        palette = wes_palette("Moonrise2"),  # Use your predefined colors
                        legend = "right",
-                       legend.title = "",censor = F)
+                       legend.title = "",censor = F, risk.table = T)
 
-kaplan_plot_tot <- km_plot2$plot + 
+kaplan_plot_tot <- km_plot$plot + 
+  coord_cartesian(xlim=c(0,362), ylim = c(97,100.1)) +
+  scale_x_continuous(breaks = seq(0,360,30), expand = c(0,0)) +
+  scale_y_continuous(limits = c(97,100.2), breaks = seq(97,100,1), expand = c(0,0))+
+  xlab("Days after ART start")+
+  theme_classic(base_size = 10) +
+  scale_color_manual(values = wes_palette("Moonrise2"), labels = c("South Africa", "Switzerland")) + 
+  scale_fill_manual(values = wes_palette("Moonrise2"), labels = c("South Africa", "Switzerland")) +
+  theme(legend.position = "none") +
+  theme(legend.title = element_blank(), plot.title = element_text(size = 10,
+                                                                  face = "bold"), # Set title properties here
+        plot.title.position = "plot") +
+  labs(title = "b | Probability of survival after ART start",
+       caption = "Mean as lines, 95%-CI as ribbons")
+
+kaplan_plot_tot
+
+ggsave(kaplan_plot_tot, filename = "results/kaplan.png",
+       width = 12.7, height = 12.7, unit = "cm")
+
+##### Figure 1b (weighted) -----------------------------------------------------
+
+library(ipw)
+
+km_f <- km %>% 
+  filter(!is.na(cd4_baseline))
+
+weights <- ipwpoint(exposure = cohort, family = "binomial", link = "logit", 
+                    denominator = ~ age_at_art_start + gender + cd4_baseline, data = km_f)
+
+SurvObj2 <- Surv(time = km_f$last_persontime, event = km_f$exit == 1)
+
+fit2 <- survfit(SurvObj2 ~ cohort, data = km_f, weights = weights$den.mod$weights)
+
+km_plot2 <- ggsurvplot(fit2, data = km_f, conf.int = TRUE, 
+                      fun = "pct", 
+                      palette = wes_palette("Moonrise2"),
+                      legend = "right",
+                      legend.title = "",censor = F,risk.table = T)
+km_plot2$table
+
+kaplan_plot_tot2 <- km_plot2$plot + 
   coord_cartesian(xlim=c(0,362), ylim = c(95,100.1)) +
   scale_x_continuous(breaks = seq(0,360,30), expand = c(0,0)) +
   scale_y_continuous(limits = c(95,100.2), breaks = seq(95,100,1), expand = c(0,0))+
@@ -190,11 +191,11 @@ kaplan_plot_tot <- km_plot2$plot +
   labs(title = "b | Probability of survival after ART start",
        caption = "Mean as lines, 95%-CI as ribbons")
 
-kaplan_plot_tot
+kaplan_plot_tot2
 
 ##### Join together ------------------------------------------------------------
 
-arranged_plots <- ggpubr::ggarrange(cd4_pred1, kaplan_plot_tot, ncol = 1, common.legend = F) 
+arranged_plots <- ggpubr::ggarrange(cd4_pred_pl, kaplan_plot_tot, ncol = 1, common.legend = F) 
 arranged_plots
 ggsave(arranged_plots, filename = "results/conference.png", 
        width = 12.7, height = 12.7, units = "cm", )

@@ -1,7 +1,7 @@
 ---
-title: "EDA"
+title: "Data Overview"
 author: "Remo Schmutz"
-date: "2023-11-06"
+date: "2023-12-05"
 output:
   html_document: 
     fig_caption: true
@@ -105,11 +105,11 @@ tabyl(complete$regimen_tb_group)
 complete <- complete %>% 
   mutate(regimen_tb_group_nres = case_when(resistance_tb_any %in% c(0,NA) ~ regimen_tb_group,
          TRUE ~ NA))
-
+tabyl(complete$regimen_tb_group_nres)
 complete$regimen_tb_group_nres <- factor(complete$regimen_tb_group_nres, 
-         levels=c("Standard","Rifabutin based", "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone", "Others"))
+         levels=c("Standard","Rifabutin based", "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone", "2HRZES 1HRZE 5HRE", "Others"))
 
-label(complete$regimen_tb_group_nres) <- "TB regimen amongst drug-receptive patients"
+label(complete$regimen_tb_group_nres) <- "TB regimen amongst drug-susceptible patients"
 
 ```
 
@@ -149,19 +149,21 @@ my.render.cat <- function(x) {
 table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group_nres | cohort + presenting_tb, data = complete,
        overall = c(left = "All"),
        topclass="Rtable1-zebra",
-       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) or <a recent history of TB (diagnosis 2-12 months before ART start)> <-- [I actually also excluded those with recent history now If I understood your mails correctly] with patients with no history of TB.",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >12 months before ART start were excluded.",
        render.continuous = my.render.cont,
        render.categorical = my.render.cat)
 ```
+
+# Table 1b
 
 ```{r}
-table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group_nres | cohort, data = complete,
-       topclass="Rtable1-zebra",
-       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) or <a recent history of TB (diagnosis 2-12 months before ART start)> <-- [I actually also excluded those with recent history now If I understood your mails correctly] with patients with no history of TB.",
-       render.continuous = my.render.cont,
-       render.categorical = my.render.cat)
+table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage + regimen| cohort, data = complete,
+       overall = c(left = "All"),
+        topclass="Rtable1-zebra",
+        caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >12 months before ART start were excluded.",
+        render.continuous = my.render.cont,
+        render.categorical = my.render.cat)
 ```
-
 
 ### Top 5 most used ART treatments per cohort
 
@@ -232,7 +234,7 @@ tb <- tb %>%
 tb$regimen_tb_group_nres <- factor(tb$regimen_tb_group_nres, 
          levels=c("Standard","Rifabutin based", "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone", "2HRZES 1HRZE 5HRE",  "Others"))
 
-label(tb$regimen_tb_group_nres) <- "TB regimen amongst drug-receptive patients"
+label(tb$regimen_tb_group_nres) <- "TB regimen amongst drug-susceptible patients"
 
 # Site of TB #
 
@@ -247,9 +249,7 @@ label(tb$tb_diag_cd4) <- "CD4 cell count at TB diagnosis"
 label(tb$tb_diag_rna) <- "HIV RNA viral load at TB diagnosis"
 
 # Outcome TB #
-
 label(tb$outcome_tb) <- "TB outcome"
-
 ```
 
 ```{r echo = FALSE}
@@ -262,6 +262,7 @@ table1(~ agegroups + sex + region + site_tb + regimen_tb_group_nres + tb_diag_cd
 ```
 
 # Table 3
+
 ```{r, include=FALSE}
 
 noTB <- readRDS("../../data_clean/art_noTB.rds")
@@ -321,8 +322,6 @@ noTB$regimen_tb_group <- as.character(noTB$regimen_tb_group)
 
 tabyl(noTB$regimen_tb_group)
 
-
-
 label(complete$regimen_tb_group) <- "TB regimen"
 ```
 
@@ -330,33 +329,39 @@ label(complete$regimen_tb_group) <- "TB regimen"
 table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage | cohort + incident_tb, data = noTB,
        overall = c(left = "All"),
        topclass="Rtable1-zebra",
-       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022 not presenting with TB at ART start. Comparing patients with any incident TB case after ART start, with patients without indicent TB after ART start.",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022 not presenting with TB at ART start and with no history of TB. Comparing patients with any incident TB case after ART start, with patients without indicent TB after ART start.",
        render.continuous = my.render.cont,
        render.categorical = my.render.cat)
 ```
 
 ## Median follow-up time
 
-RSA:
+### RSA
 
 ```{r}
-lft_rsa <- rsa %>% 
+rsa %>% 
   dplyr::select(last_persontime) %>% 
   summarise(median = median(last_persontime, na.rm = T),
             l_q = quantile(last_persontime, 0.25, na.rm = T),
-            u_q = quantile(last_persontime, 0.75, na.rm = T))
+            u_q = quantile(last_persontime, 0.75, na.rm = T)) %>% 
+  kable()
+```
 
-lft_ch <- ch %>% 
+### CH
+
+```{r}
+ch %>% 
   dplyr::select(last_persontime) %>% 
   summarise(median = median(last_persontime, na.rm = T),
             l_q = quantile(last_persontime, 0.25, na.rm = T),
-            u_q = quantile(last_persontime, 0.75, na.rm = T))
+            u_q = quantile(last_persontime, 0.75, na.rm = T)) %>% 
+  kable()
 ```
 
 ## All-cause mortality rate
 
 ```{r}
-complete_exit <- complete %>%
+complete %>%
   mutate(exit = case_when(!is.na(exitdate) ~ 1, TRUE ~ 0)) %>%
   group_by(cohort, presenting_tb) %>%
   summarise(n = n(),  # Total count in each group
@@ -367,46 +372,42 @@ complete_exit <- complete %>%
     prop = round(prop * 100, 2),  # Convert to percentage
     lower = round(lower * 100, 2),       # Convert to percentage
     upper = round(upper * 100 ,2)        # Convert to percentage
-  )
+  ) %>% 
+  kable()
 ```
-
 
 # Figures
 
 ## TB Incidence per baseline groups
 
-![Figure 1: Point-wise incidence estimate stratified by baseline viral load for Khayelitsha (left) and SHCS (right).](images/incidence_rna-04.png)
+![Figure 1: Point-wise TB incidence rate estimate stratified by baseline viral load.](images/incidence_rna-05.png)
 
-![Figure 2: Point-wise incidence estimate stratified by baseline CD4 count for Khayelitsha (left) and SHCS (right).](images/incidence_cd4-08.png)
+![Figure 2: Point-wise TB incidence rate estimate stratified by baseline CD4 Count.](images/incidence_cd4-09.png)
 
-![Figure 3: IRR compared to the reference group 350+ (CD4 at ART start).](images/irr-01.png)
+![Figure 3: Incident Rate Ratios (IRRs) of Tuberculosis Incidence relative to the Reference Group (CD4 Count ≥ 350 at ART Initiation), compared separately for each cohort.](images/irr-02.png)
 
 ## Survival analysis
 
-![Figure 4: The cumulative incidence rates (log10-scaled) for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange).](images/incidence_aj_log-02.png)
+![Figure 4: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange).](images/incidence_aj-02.png)
 
-![Figure 5: The cumulative occurence rates for time to first cd4-measurement **\> 350** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/rec_aj350.png)
+![Figure 5: The cumulative occurence rates for time to first cd4-measurement **\> 350** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/rec_aj350-01.png)
 
-![Figure 6: The cumulative occurence rates for time to first cd4-measurement **\> 500** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/rec_aj500.png)
+![Figure 6: The cumulative occurence rates for time to first cd4-measurement **\> 500** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/rec_aj500-01.png)
 
-![Figure 7: The cumulative occurence rates for time to first rna-measurement **\< 400** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/sup_aj400.png)
+![Figure 7: The cumulative occurence rates for time to first rna-measurement **\< 400** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/sup_aj400-02.png)
 
-![Figure 8: The cumulative occurence rates for time to first rna-measurement **\< 200** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/sup_aj200.png)
+![Figure 8: The cumulative occurence rates for time to first rna-measurement **\< 200** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/sup_aj200-01.png)
 
-## Immunological recovery slopes
+![Figure 9: Kaplan-Meier curve comparing the survival probability after ART start between South Africa and Switzerland](images/kaplan-01.png)
 
-![Figure 9: The model was fitted using a Generalized Additive Model (GAM) with a cubic spline smoothing term to capture non-linear trends.](images/cd4-04.png)
+## CD4 count recovery (IWHOD figure)
 
-![Figure 10: The model was fitted using a Generalized Additive Model (GAM) with a cubic spline smoothing term to capture non-linear trends. Note, uncertainty about Art-naive status in Khayelitsha could play a role in low viral load at ART start. Displaying the non-logscaled values is difficult, as some values are extremely high.](images/rna-04.png)
+![Figure 10: Fitted GAM model using cubic spline estimating the CD4 recovery after ART start.](images/cd4_pred-01.png)
 
-![Figure 11: Fit-only for the CD4 model](images/cd4_fit-01.png)
-
-![Figure 12: Fit-only for the transformed RNA model](images/rna_fit-02.png)
+![Figure 11: Fitted GAM model using cubic spline estimating the HIV VL after ART start.](images/rna_pred-01.png)
 
 ## Follow-up
 
-![Figure 13. Kaplan Meier estimate of the survival probability stratified by TB status at ART start in the Khayelitsha cohort.](images/exit_km-01.png)
+![Figure 12: Proportion of patients who died within specified intervals relative to the number of patients present at the start of each interval in RSA. Wilson-type confidence intervals are included.](images/exit_prop-07.png)
 
-![Figure 14: Proportion of patients who died within specified intervals relative to the number of patients present at the start of each interval. Wilson-type confidence intervals are included.](images/exit_prop-03.png)
-
-![Figure 15: Proportion of cumulative numbers over time.](images/fup_prop-01.png)
+![Figure 13: Proportion of cumulative numbers over time.](images/fup_prop-02.png)

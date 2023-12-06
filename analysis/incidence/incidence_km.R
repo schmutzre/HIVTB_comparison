@@ -77,16 +77,34 @@ print(p_death)
 
 ########### Aalen-Johansen model (including competing risk [death]) ------------
 
-## Both in one plot ##
+#' I use ggcuminc to plot the competing risk survival function, it is mentioned in the documention
+#' that both survfit2 (mstate) aswell as cuminc can be used to create the dataframe for plotting.
+
+library(tidycmprsk)
+
+# cuminc(Surv(persontime_years, event_type) ~ cohort, kaplan) %>% 
+#   ggcuminc(outcome = c("1")) +
+#   add_confidence_interval() +
+#   scale_ggsurvfit()+
+#   theme_classic() +
+#   theme(legend.position = "none") +
+#   labs(x = "Years after ART start",
+#        y = "Cumulative incidence of TB (%)") +
+#   coord_cartesian(xlim = c(0,5), ylim = c(0,0.05))+
+#   scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
+#   theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
+#   scale_color_manual(values = wes_palette("Moonrise2")) +
+#   scale_fill_manual(values = wes_palette("Moonrise2"))
 
 plot_aj <- survfit2(Surv(persontime_years, event_type, type = "mstate") ~ cohort, data = kaplan) |>
-  ggcuminc(linewidth = 0.5, outcome = "1") +
+  ggcuminc(linewidth = 0.5, outcome = c("1")) +
   add_confidence_interval() +
   theme_classic() +
   theme(legend.position = "none") +
   labs(x = "Years after ART start",
        y = "Cumulative incidence of TB (%)") +
-  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
+  coord_cartesian(xlim = c(0,5), ylim = c(0,0.05))+
+  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 5, integer = TRUE)) +  
   scale_y_continuous(expand = c(0,0), labels = function(y) paste0(y * 100)) +  
   theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
@@ -99,23 +117,23 @@ ggsave(plot = plot_aj, filename = "results/incidence/incidence_aj.png",
 
 ## log-scaled ## 
 
-plot_aj_log <- survfit2(Surv(persontime_years, event_type, type = "mstate") ~ cohort, data = kaplan) |>
-  ggcuminc(linewidth = 0.5) +
-  add_confidence_interval() +
-  theme_classic() +
-  theme(legend.position = "none") +
-  labs(x = "Years after ART start",
-       y = "Log-scaled cumulative incidence of TB-Incidence (%)") +
-  scale_y_log10(expand = c(0,0), labels = function(y) paste0(y * 100))+
-  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
-  theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
-  scale_color_manual(values = wes_palette("Moonrise2")) +
-  scale_fill_manual(values = wes_palette("Moonrise2")) 
-
-plot_aj_log
-
-ggsave(plot = plot_aj_log, filename = "results/incidence/incidence_aj_log.png", 
-       width = 16, height = 11, units = "cm")
+# plot_aj_log <- survfit2(Surv(persontime_years, event_type, type = "mstate") ~ cohort, data = kaplan) |>
+#   ggcuminc(linewidth = 0.5) +
+#   add_confidence_interval() +
+#   theme_classic() +
+#   theme(legend.position = "none") +
+#   labs(x = "Years after ART start",
+#        y = "Cumulative incidence of TB (%)") +
+#   scale_y_log10(expand = c(0,0), labels = function(y) paste0(y * 100))+
+#   scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
+#   theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
+#   scale_color_manual(values = wes_palette("Moonrise2")) +
+#   scale_fill_manual(values = wes_palette("Moonrise2")) 
+# 
+# plot_aj_log
+# 
+# ggsave(plot = plot_aj_log, filename = "results/incidence/incidence_aj_log.png", 
+#        width = 16, height = 11, units = "cm")
 
 ## Seperate plots ##
 

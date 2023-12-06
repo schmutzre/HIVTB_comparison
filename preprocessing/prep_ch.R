@@ -39,7 +39,7 @@ filteredBOTH <- complete_ch %>%
     id, born, sex, risk, haart_start_date, art_start_date, art_start_cd4, virus_type, 
     disease_tb, tbd_outcome, type_tb_shcs, date_tb, disease_tbc, tbd_pat_birth, region, 
     case_incident_2m, exitdate, current_art, eligibility_art, 
-    starts_with("tbd_drug_resist_"), starts_with("tbd_antim_resist_")
+    starts_with("tbd_drug_resist_"), starts_with("tbd_antim_resist_"), regdate
   ) %>%
   mutate(art_start_date = case_when(!is.na(haart_start_date) ~ haart_start_date,
                                     TRUE ~ art_start_date)) %>% 
@@ -196,7 +196,7 @@ dis2 <- dis %>%
     mutate(cdc_group = ifelse(cdc_group =="D", "C", cdc_group))  
   
 who_stages <- filteredBOTH.lab %>% 
-    left_join(dis2, by = "id") %>% 
+  left_join(dis2, by = "id") %>% 
     mutate(cdc_group = ifelse(cdc_group =="", NA, cdc_group)) %>%
     group_by(id) %>%
     mutate(cdc_group =  
@@ -204,15 +204,17 @@ who_stages <- filteredBOTH.lab %>%
     arrange(abs(art_start_date - newdate)) %>%
     filter(!is.na(cdc_group)) %>% 
     distinct(id, .keep_all = TRUE) %>% 
-    mutate(who_stage = case_when(
-      cdc_group == "A" ~ "1",
-      cdc_group == "B" ~ "2/3",
-      cdc_group == "C" ~ "4"
-    )) %>% 
+    mutate(who_stage = as.factor(case_when(
+      presenting_tb == 1 ~ 3,
+      cdc_group == "A" ~ 1,
+      (cdc_group == "B" & cd4_baseline >= 350) ~ 2,
+      (cdc_group == "B" & cd4_baseline < 350) ~ 3,
+      cdc_group == "C" ~ 4
+    ))) %>% 
     ungroup() 
   
 filteredBOTH.who <- filteredBOTH.lab %>% 
-    left_join(who_stages %>% dplyr::select(id, who_stage), by = "id") 
+    left_join(who_stages %>% dplyr::select(id, who_stage, cdc_group), by = "id") 
   
 #### CD4 and VL @ TB-date ------------------------------------------------------
 
@@ -392,9 +394,9 @@ tabyl(filteredBOTH.tbtreatment$regimen_tb_group)
 #### TB outcome ----------------------------------------------------------------
 
 filteredBOTH.tboutcome <- filteredBOTH.tbtreatment %>% 
-  mutate(outcome_tb = case_when(outcome_tb == "Treatment completed" ~ "Completed",
+  mutate(outcome_tb = case_when(outcome_tb %in% c("Treatment completed","Cured")  ~ "Sucessfull",
                                 outcome_tb == "Treatment failed" ~ "Failed",
-                                outcome_tb %in% c("Cured", "Died") ~ outcome_tb,
+                                outcome_tb == "Died" ~ outcome_tb,
                                 TRUE ~ NA
                              ))
 
@@ -446,9 +448,10 @@ art_ch <- final %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date,
          eligibility_art ==1,
-         recent_tb == 0) %>% 
+         recent_tb == 0,
+         (date_tb >= art_start_date - 360 | is.na(date_tb))) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
-  dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art) %>% 
+  dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -regdate, -cdc_group) %>% 
   rename(gender = sex)
 
 saveRDS(art_ch, "data_clean/ch/art_ch.rds")
@@ -469,7 +472,7 @@ tb_ch <- final %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
-  dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art)
+  dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -regdate, -cdc_group)
   
 saveRDS(tb_ch, "data_clean/ch/tb_ch.rds") 
 
