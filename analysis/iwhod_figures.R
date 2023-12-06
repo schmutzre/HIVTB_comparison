@@ -42,21 +42,11 @@ cd4 <- rbind(cd4_ch %>% dplyr::select(-timepoint),
 
 # datasets #
 
-cd4_npres_rsa <- cd4 %>% 
-  filter(presenting_tb == 0,
-         cohort == "RSA") 
+cd4_npres <- cd4 %>% 
+  filter(presenting_tb == 0)
 
-cd4_npres_ch <- cd4 %>% 
-  filter(presenting_tb == 0,
-         cohort == "CH")
-
-cd4_pres_rsa <- cd4 %>% 
-  filter(presenting_tb == 1,
-         cohort == "RSA")
-
-cd4_pres_ch <- cd4 %>% 
-  filter(presenting_tb == 1,
-         cohort == "CH")
+cd4_pres <- cd4 %>% 
+  filter(presenting_tb == 1)
 
 # model definition #
 
@@ -193,9 +183,12 @@ kaplan_plot_tot2 <- km_plot2$plot +
 
 kaplan_plot_tot2
 
+ggsave(kaplan_plot_tot2, filename = "results/kaplan_weighted.png",
+       width = 12.7, height = 12.7, unit = "cm")
+
 ##### Join together ------------------------------------------------------------
 
-arranged_plots <- ggpubr::ggarrange(cd4_pred_pl, kaplan_plot_tot, ncol = 1, common.legend = F) 
+arranged_plots <- ggpubr::ggarrange(cd4_pred_pl, kaplan_plot_tot2, ncol = 1, common.legend = F) 
 arranged_plots
 ggsave(arranged_plots, filename = "results/conference.png", 
        width = 12.7, height = 12.7, units = "cm", )

@@ -398,7 +398,7 @@ complete %>%
 
 ![Figure 8: The cumulative occurence rates for time to first rna-measurement **\< 200** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/sup_aj200-01.png)
 
-![Figure 9: Kaplan-Meier curve comparing the survival probability after ART start between South Africa and Switzerland](images/kaplan-01.png)
+![Figure 9: Kaplan-Meier curve comparing the survival probability after ART start between South Africa and Switzerland weighted by baseline CD4, Gender and Age at ART start.](images/kaplan_weighted.png)
 
 ## CD4 count recovery (IWHOD figure)
 
