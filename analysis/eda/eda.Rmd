@@ -149,7 +149,7 @@ my.render.cat <- function(x) {
 table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group_nres | cohort + presenting_tb, data = complete,
        overall = c(left = "All"),
        topclass="Rtable1-zebra",
-       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >12 months before ART start were excluded.",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >2 months before ART start were excluded.",
        render.continuous = my.render.cont,
        render.categorical = my.render.cat)
 ```
@@ -160,7 +160,7 @@ table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who
 table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage + regimen| cohort, data = complete,
        overall = c(left = "All"),
         topclass="Rtable1-zebra",
-        caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >12 months before ART start were excluded.",
+        caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >2 months before ART start were excluded.",
         render.continuous = my.render.cont,
         render.categorical = my.render.cat)
 ```

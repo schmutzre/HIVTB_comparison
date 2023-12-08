@@ -449,7 +449,7 @@ art_ch <- final %>%
          is.na(exitdate) | exitdate >= art_start_date,
          eligibility_art ==1,
          recent_tb == 0,
-         (date_tb >= art_start_date - 360 | is.na(date_tb))) %>% 
+         (date_tb >= art_start_date - 60 | is.na(date_tb))) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
   dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -regdate, -cdc_group) %>% 
   rename(gender = sex)

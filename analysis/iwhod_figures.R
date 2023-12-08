@@ -90,7 +90,7 @@ cd4_pred_pl <- cd4_pred %>%
   scale_fill_manual(values = wes_palette("Moonrise2")) +
   labs(x = "Days after ART start",
        y = expression("CD4 count (cells/µl)"),
-       title = "a | CD4 count showing immunological recovery after ART start") +
+       title = "1a | CD4 count showing immunological recovery after ART start") +
   theme_classic(base_size = 10) +
   theme(legend.position = "top", legend.title = element_blank(),
         panel.spacing.x = unit(.66, "cm"),
@@ -137,7 +137,7 @@ kaplan_plot_tot <- km_plot$plot +
   theme(legend.title = element_blank(), plot.title = element_text(size = 10,
                                                                   face = "bold"), # Set title properties here
         plot.title.position = "plot") +
-  labs(title = "b | Probability of survival after ART start",
+  labs(title = "1b | Probability of survival after ART start",
        caption = "Mean as lines, 95%-CI as ribbons")
 
 kaplan_plot_tot
@@ -167,9 +167,9 @@ km_plot2 <- ggsurvplot(fit2, data = km_f, conf.int = TRUE,
 km_plot2$table
 
 kaplan_plot_tot2 <- km_plot2$plot + 
-  coord_cartesian(xlim=c(0,362), ylim = c(95,100.1)) +
+  coord_cartesian(xlim=c(0,362), ylim = c(90,100.1)) +
   scale_x_continuous(breaks = seq(0,360,30), expand = c(0,0)) +
-  scale_y_continuous(limits = c(95,100.2), breaks = seq(95,100,1), expand = c(0,0))+
+  scale_y_continuous(limits = c(90,100.2), breaks = seq(90,100,5), expand = c(0,0))+
   xlab("Days after ART start")+
   theme_classic(base_size = 10) +
   scale_color_manual(values = wes_palette("Moonrise2"), labels = c("South Africa", "Switzerland")) + 
@@ -178,7 +178,7 @@ kaplan_plot_tot2 <- km_plot2$plot +
   theme(legend.title = element_blank(), plot.title = element_text(size = 10,
                                                                   face = "bold"), # Set title properties here
         plot.title.position = "plot") +
-  labs(title = "b | Probability of survival after ART start",
+  labs(title = "1b | Probability of survival after ART start",
        caption = "Mean as lines, 95%-CI as ribbons")
 
 kaplan_plot_tot2
@@ -191,5 +191,5 @@ ggsave(kaplan_plot_tot2, filename = "results/kaplan_weighted.png",
 arranged_plots <- ggpubr::ggarrange(cd4_pred_pl, kaplan_plot_tot2, ncol = 1, common.legend = F) 
 arranged_plots
 ggsave(arranged_plots, filename = "results/conference.png", 
-       width = 12.7, height = 12.7, units = "cm", )
+       width = 12.7, height = 12.7, units = "cm")
 
