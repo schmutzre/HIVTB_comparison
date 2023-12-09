@@ -74,8 +74,8 @@ cd4_pred_pres <- predict(m.cd4_pres, type = "response", se.fit = T, newdata = pr
          upper = fit + qnorm(.975) * se.fit,
          lower = fit - qnorm(.975) * se.fit)
 
-cd4_pred <- rbind(cd4_pred_npres %>% mutate(type = "Not presenting with TB"), 
-                  cd4_pred_pres %>% mutate(type = "Presenting with TB"))
+cd4_pred <- rbind(cd4_pred_npres %>% mutate(type = "Without prevalent TB"), 
+                  cd4_pred_pres %>% mutate(type = "With prevalent TB"))
 
 cd4_pred_pl <- cd4_pred %>%
   ggplot(mapping = aes(x = time_diff)) +
