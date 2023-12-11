@@ -1,0 +1,147 @@
+---
+title: "Imputation"
+author: "Remo Schmutz"
+date: "2023-12-11"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+data <- readRDS("../../data_clean/art.rds")
+library(mice)
+library(gridExtra)
+library(tidyverse)
+library(lattice)
+library(kableExtra)
+```
+
+This document serves as a broad overview of the theory and implementation of the Multiple iterative chained equations (MICE) as I understand it. This should help me learn the theory behind the method and makes it easier for you to make nuanced improvements to my implementation and give further advice to improve the prediction.
+
+## Method: Multiple iterative chained equations (MICE)
+
+-   The main idea is to use an iterative approach to predict the missing values in the dataset using the existing data.
+
+-   To make it more illustrative, I will define the dataset as $M$, including the columns $A, B$ and $C$.
+
+Iteration 1:
+
+1.  We use the median of each column to fill the missing values in the respective column. The matrix $M$ is now full and exists of the true values and the median (per column) of the true values.
+2.  Assume column $A$ has missing values in it. Delete every row where there were originally missing values in column $A$. Build a model predicting column $A$ from the other columns. $A$ \~ $B + C$. Which exact model is used can be defined with the parameter `method`.
+3.  This model is then used to predict the missing values in column $A$. Note, imputed median values for the other columns were used in the learning phase. I.e. if we want to predict $A_1$ but $B_1$ was originally also missing. The imputed $B_1$ (i.e. median of $B$) is used nevertheless.
+4.  This is then repeated for every column.
+
+Iteration i $\in \{2,k\}$:
+
+1.  Repeat the algorithm from iteration 1, the difference: In the case that predictors were originally also missing, they are now not replaced by the median of their respective column, but with the prediction of the model in iteration $i-1$.
+
+Pool the estimates from each model into a single set of estimates.
+
+## Implementation:
+
+1.  Inspect the missing data pattern with `md.pattern(df)`.
+
+2.  Fit the imputation `imp <- mice(df)`.
+
+3.  Changing prediction matrix with `imp$pred`, if there are certain predictor that should be excluded.
+
+4.  Change the imputation method by `imp$meth` , using predictive mean matching "pmm" for continous outcomes and logistic regression "logreg" for binary outcomes seem to be the norm. I would probably use proportional odds logistig regression "polr" for ordinal data like `who_stage`.
+
+5.  Use `stripplot(imp, col~.imp, pch=20, cex=2)` to compare the imputed values for column `col` with the existing data. When missing completely at random (MCAR) assumption is met, these should have the same distribution.
+
+6.  Perform the analysis on each imputed dataset.
+
+7.  Pool the analysis and inspect the pooled analysis.
+
+## Implementation for our dataset:
+
+### Data structure:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, pattern}
+library(patchwork)
+
+df <- data %>% 
+  select(c(id, gender, cohort, age_at_art_start, cd4_baseline, who_stage, region)) %>% 
+  rename("sex" = gender, 
+         "age" = age_at_art_start,
+         "cd4" = cd4_baseline,
+         "who" = who_stage,
+         "reg" = region)
+
+md.pattern(df)
+p1 <- ggplot(df, aes(x = sex)) + geom_bar() + theme_bw()
+p2 <- ggplot(df, aes(x = age)) + geom_bar() + theme_bw()
+p3 <- ggplot(df, aes(x = cd4)) + geom_bar() + theme_bw()
+p4 <- ggplot(df, aes(x = who)) + geom_bar() + theme_bw()
+p5 <- ggplot(df, aes(x = reg)) + geom_bar() + theme_bw() +theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+(p1 | p2 | p3) /
+(p4 | p5)
+
+```
+
+### Define Imputation
+
+```{r echo=TRUE, warning=FALSE}
+colnames(df)
+
+predMatrix <- quickpred(df)
+
+
+imp <- df %>% 
+  mice(method = c("","", "", "","pmm", "polr", "polyreg"), 
+            seed = 1793)
+  
+for(i in 1:5) {
+  complete_data <- complete(imp, action = i)
+  saveRDS(complete_data, file = paste0("../../data_clean/imputed/art_imp", i, ".rds"))
+}
+```
+
+```{r echo=FALSE}
+stripplot(imp, cd4~.imp, pch=20, cex = 2)
+
+plot(imp, cd4 + reg + who ~.it | .ms, layout = c(2,1))
+```
+
+```{r echo=FALSE}
+imp1 <- readRDS("../../data_clean/imputed/art_imp1.rds")
+imp2 <- readRDS("../../data_clean/imputed/art_imp2.rds")
+imp3 <- readRDS("../../data_clean/imputed/art_imp3.rds")
+imp4 <- readRDS("../../data_clean/imputed/art_imp4.rds")
+imp5 <- readRDS("../../data_clean/imputed/art_imp5.rds")
+
+regioNA <- df %>% 
+  filter(is.na(reg))
+
+reg_imp1 <- select(imp1, id, reg) %>% rename(imp1 = reg)
+reg_imp2 <- select(imp2, id, reg) %>% rename(imp2 = reg)
+reg_imp3 <- select(imp3, id, reg) %>% rename(imp3 = reg)
+reg_imp4 <- select(imp4, id, reg) %>% rename(imp4 = reg)
+reg_imp5 <- select(imp5, id, reg) %>% rename(imp5 = reg)
+
+regioNA %>%
+  left_join(reg_imp1, by = "id") %>%
+  left_join(reg_imp2, by = "id") %>%
+  left_join(reg_imp3, by = "id") %>%
+  left_join(reg_imp4, by = "id") %>%
+  left_join(reg_imp5, by = "id") %>% 
+  select(id, imp1, imp2, imp3, imp4, imp5) %>% 
+  kable()
+```
+
+```{r echo=T}
+#complete
+summary(df)
+#iteration 1
+summary(imp1)
+#iteration2
+summary(imp2)
+#iteration3
+summary(imp3)
+#iteration4
+summary(imp4)
+#iteration5
+summary(imp5)
+```
+
+
