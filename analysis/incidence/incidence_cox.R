@@ -22,40 +22,25 @@ pacman:: p_load(
 ##### data import ----
 custom_breaks <- c(16, 24, 34, 44, 100)
 
-cox_ch <- readRDS("data_clean/art_ch.rds") %>% 
-  mutate(persontime_years = case_when(
-    case_incident_2m == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
-    case_incident_2m == 0 ~ last_persontime/360
-  )
-  )  %>% 
-  filter(rna_group != "NA",
-         cd4_group != "NA") %>% 
-  mutate(agegroup = cut(age_at_ART_start, breaks = custom_breaks, include.lowest = TRUE),
-           agegroup = as.factor(agegroup),
-           baselineCD4 = as.factor(cd4_group),
-          incidence = case_incident_2m,
-           baselineRNA = as.factor(rna_group),
-           born = as.factor(region)) %>%
-  dplyr::select(id, art_start_date, incidence, date_tb, cohort, persontime_years, exitdate, born, exit_why, last_fup_date, agegroup, baselineCD4, baselineRNA, sex) %>% 
-  mutate(event_type = case_when(
-    incidence == 1 ~ 1,
+cox <- readRDS("data_clean/art_noTB.rds") %>% 
+  mutate(incident_tb = as.numeric(as.character(incident_tb)),
+         persontime_years = case_when(
+           incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
+           incident_tb == 0 ~ last_persontime/360),
+         persontime_days = case_when(
+           incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")),
+           incident_tb == 0 ~ last_persontime),
+         persontime_death_days = case_when(
+           !is.na(exitdate) ~ as.numeric(difftime(exitdate, art_start_date, units = "days")),
+           is.na(exitdate) ~ last_persontime),
+         cohort = fct_relevel(cohort, "RSA")) %>% 
+  dplyr::select(id, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, persontime_days, cd4_group, age_at_art_start, gender, exitdate) %>% 
+  filter(persontime_years > 0) %>% 
+  mutate(event_type = as.factor(case_when(
+    incident_tb == 1 ~ 1,
     !is.na(exitdate) ~ 2,
-    TRUE ~0 # Loss to follow-up isnt considered a competing risk
-  ))
-
-cox_ch$sex <- droplevels(cox_ch$sex)
-
-cox_test <- cox_ch %>% 
-  mutate(cohort = factor(ifelse(row_number() <= 2000, "CH", "SA"))) 
-
-cox_sa <- #...
-  
-cox <- cox_test #... #join them together 
-cox$cohort <- droplevels(cox$cohort)
-cox$agegroup <- droplevels(cox$agegroup)
-cox$sex <- droplevels(cox$sex)
-cox$baselineCD4 <- droplevels(cox$baselineCD4)
-cox$baselineRNA <- droplevels(cox$baselineRNA)
+    TRUE ~ 0 # Loss to follow-up isnt considered a competing risk
+  )))
 
 #### model ----
 

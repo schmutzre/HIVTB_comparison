@@ -2,22 +2,32 @@
 title: "Imputation"
 author: "Remo Schmutz"
 date: "2023-12-11"
-output: pdf_document
+output:
+  html_document: 
+    fig_caption: true
+    code_folding: hide
+    highlight: haddock
+    theme: flatly
+    toc: yes
+    toc_float: yes
 ---
+
+## TODO: Finish imputation for South Africa
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-data <- readRDS("../../data_clean/art.rds")
+data <- readRDS("../../data_clean/art_noTB.rds")
 library(mice)
 library(gridExtra)
 library(tidyverse)
 library(lattice)
 library(kableExtra)
+library(tableone)
 ```
 
 This document serves as a broad overview of the theory and implementation of the Multiple iterative chained equations (MICE) as I understand it. This should help me learn the theory behind the method and makes it easier for you to make nuanced improvements to my implementation and give further advice to improve the prediction.
 
-## Method: Multiple iterative chained equations (MICE)
+# Method: Multiple iterative chained equations (MICE)
 
 -   The main idea is to use an iterative approach to predict the missing values in the dataset using the existing data.
 
@@ -36,7 +46,7 @@ Iteration i $\in \{2,k\}$:
 
 Pool the estimates from each model into a single set of estimates.
 
-## Implementation:
+# Implementation:
 
 1.  Inspect the missing data pattern with `md.pattern(df)`.
 
@@ -52,96 +62,284 @@ Pool the estimates from each model into a single set of estimates.
 
 7.  Pool the analysis and inspect the pooled analysis.
 
-## Implementation for our dataset:
-
-### Data structure:
+## Data
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE, pattern}
 library(patchwork)
+library(GGally)
+library(finalfit)
+
+## select variables ----
 
 df <- data %>% 
-  select(c(id, gender, cohort, age_at_art_start, cd4_baseline, who_stage, region)) %>% 
   rename("sex" = gender, 
          "age" = age_at_art_start,
-         "cd4" = cd4_baseline,
+         "bcd4" = cd4_baseline,
+         "brna" = rna_baseline,
          "who" = who_stage,
-         "reg" = region)
+         "regio" = region,
+         "pres_tb" = presenting_tb) %>%
+  mutate(bcd4_tr = sqrt(bcd4),
+         brna_tr = log10(brna + 1),
+         regimen = as.factor(regimen)) %>% 
+  select(sex, age, regio, bcd4, bcd4_tr, brna, brna_tr, who, regimen, incident_tb, cohort)
 
-md.pattern(df)
-p1 <- ggplot(df, aes(x = sex)) + geom_bar() + theme_bw()
-p2 <- ggplot(df, aes(x = age)) + geom_bar() + theme_bw()
-p3 <- ggplot(df, aes(x = cd4)) + geom_bar() + theme_bw()
-p4 <- ggplot(df, aes(x = who)) + geom_bar() + theme_bw()
-p5 <- ggplot(df, aes(x = reg)) + geom_bar() + theme_bw() +theme(axis.text.x = element_text(angle = 90, hjust = 1))
+df_ch <- df %>% filter(cohort == "CH") %>%
+  select(-cohort)
 
-(p1 | p2 | p3) /
-(p4 | p5)
+df_ch$regio <- relevel(df_ch$regio, ref = "Europe")
+
+df_rsa <- df %>% filter(cohort == "RSA") %>% 
+  select(-cohort)
+```
+
+## Complete records analysis (logistic regression)
+
+### Switzerland
+
+```{r, warning=F}
+log_cr_ch <- glm(incident_tb ~ sex + age + who + regio +  bcd4_tr + brna_tr, 
+                 family="binomial", 
+                 data= df_ch)
+summary(log_cr_ch)
+
+#round(exp(cbind(coef(log_cr_ch), confint(log_cr_ch))), 3)
+```
+
+### South Africa
+
+```{r}
+log_cr_rna <- glm(incident_tb ~ sex + age + bcd4_tr, 
+                 family="binomial", 
+                 data= df_rsa)
+
+summary(log_cr_rna)
+
+#round(exp(cbind(coef(log_cr_rna), confint(log_cr_rna))), 3)
+```
+
+The complete record analysis is valid under the assumption of probability of complete record not associated with outcome (incidence of TB) given covariates.
+
+## Investigate systematic missingness
+
+```{r echo=TRUE}
+data.to.impute_ch <- df_ch
+
+data.to.impute_rsa <- df_rsa %>%
+  select(-regio, - brna_tr, -brna, -who)
+
+syst_miss <- function(df_ti, return) {
+  
+  #' the function prints the whole systematic missingness analysis and adds the incomplete column to
+  #' the respective dataset for the glm
+  
+  data.to.impute <- df_ti
+  
+  data.to.impute$incomplete <- complete.cases(data.to.impute)
+  
+  vars <- names(data.to.impute)
+  
+  cts <- vars[sapply(data.to.impute, is.numeric)]
+  
+  cat <- vars[(!(vars %in% cts))]
+  
+  tablemiss <- CreateTableOne(vars = vars, 
+                            strata="incomplete", 
+                            data = data.to.impute, 
+                            factorVars = cat, 
+                            includeNA = F)
+  
+  if (return == "data") {
+    return(data.to.impute)
+  } else if (return == "table") {
+    return(tablemiss)
+  } else if (return == "md") {
+    return(md.pattern(data.to.impute, rotate.names = T))
+  }
+    else {
+    return(list(dataframe1 = data.to.impute, dataframe2 = tablemiss))
+  }
+  
+}
 
 ```
 
-### Define Imputation
+### Switzerland
 
-```{r echo=TRUE, warning=FALSE}
-colnames(df)
+```{r}
+data.to.impute_ch <- syst_miss(data.to.impute_ch, return = "data")
+syst_miss(data.to.impute_ch, return = "table")
+syst_miss(data.to.impute_ch, return = "md")
 
-predMatrix <- quickpred(df)
+miss.mod_ch <- glm(incomplete ~ 
+                     #sex +
+                      age + 
+                      regio + 
+                     bcd4_tr + 
+                     #bcd4 +
+                     brna_tr + 
+                     #brna +
+                     # who + #complete seperation
+                     #incident_tb +
+                     regimen, 
+                   family="binomial", 
+                   data = data.to.impute_ch,
+                   control = list(maxit = 50))
 
+summary(miss.mod_ch)
 
-imp <- df %>% 
-  mice(method = c("","", "", "","pmm", "polr", "polyreg"), 
-            seed = 1793)
-  
-for(i in 1:5) {
-  complete_data <- complete(imp, action = i)
-  saveRDS(complete_data, file = paste0("../../data_clean/imputed/art_imp", i, ".rds"))
+data.to.impute_ch$incomplete <- NULL
+
+#' significant effect for bcd4_tr, brna_tr, regimen
+#' I will include those as predictors in the Imputation model
+```
+
+### South Africa 
+
+```{r}
+data.to.impute_rsa <- syst_miss(data.to.impute_rsa, return = "data")
+syst_miss(data.to.impute_rsa, return = "table")
+syst_miss(data.to.impute_rsa, return = "md") 
+
+miss.mod_rsa <- glm(incomplete ~ 
+                     sex +
+                     age + 
+                     bcd4_tr +
+                     incident_tb +
+                     #regimen +# does not converge when i include it
+                    incident_tb, 
+                   family="binomial", 
+                   data = data.to.impute_rsa, 
+                   control = list(maxit = 50))
+
+summary(miss.mod_rsa)
+
+data.to.impute_rsa$incomplete <- NULL
+```
+
+I exclude variables that are non-significant in the table. Also variables that have complete separation which leads to failure of the model fit. (there is possibly a solution for this)
+
+## Imputation
+
+### Switzerland
+
+```{r}
+pmat_ch <-matrix(
+  c(0,0,0,0,0,0,0,0,0,0, # sex
+    0,0,0,0,0,0,0,0,0,0, # age
+    0,0,0,1,0,1,0,0,1,0, # regio
+    0,0,0,0,0,1,0,0,1,0, # bcd4
+    0,0,0,0,0,0,0,0,0,0, # bcd4_tr
+    0,0,0,1,0,0,0,0,1,0, # brna
+    0,0,0,0,0,0,0,0,0,0, # brna_tr
+    0,0,0,1,0,1,0,0,1,0, # who
+    0,0,0,1,0,1,0,0,0,0, # regimen
+    0,0,0,0,0,0,0,0,0,0) #incident_tb
+  ,nrow=10,byrow=T)
+
+# The imputation command is then as follows. Notice how
+# the "~I( )" is used to define the passive calculations.
+# As these only work with numbers, we need to express our factor variables
+# as integers.
+
+K <- 15 # number of imputations
+
+ch.imp <- mice(data = data.to.impute_ch,
+               m = K,
+               method=c(""
+                        ,""
+                        ,"polr"  # regio
+                        ,"cart"  # bcd4, because wont work with "norm"
+                        ,"~I(sqrt(bcd4))"#bcd4_tr
+                        ,"pmm" #brna, pmm because we can prevent values < 0 
+                        ,"~I(log10(brna + 1))" # brna_tr
+                        ,"polr" # who
+                        ,"polyreg" # regimen
+                        ,"")
+                 ,predictorMatrix = pmat_ch
+                 ,seed=1569
+                 ,maxit=20
+                 )
+
+# check imputations
+summary(complete(ch.imp, 0)) # with missingness, index 0
+summary(complete(ch.imp, 1)) # imputed index 1:K
+
+plot(ch.imp)
+```
+
+### South Africa
+
+```{r}
+pmat_rsa <-matrix(
+  c(0,0,0,0,0,0, # sex
+    0,0,0,0,0,0, # age
+    1,1,0,0,0,1, # bcd4
+    0,0,0,0,0,0, # bcd4_tr
+    1,1,1,0,0,1, # regimen
+    0,0,0,0,0,0) # incident_tb
+  ,nrow=6,byrow=T)
+
+# The imputation command is then as follows. Notice how
+# the "~I( )" is used to define the passive calculations.
+# As these only work with numbers, we need to express our factor variables
+# as integers.
+
+K <- 15 # number of imputations
+
+rsa.imp <- mice(data = data.to.impute_rsa,
+               m = K,
+               method=c("" #sex
+                        ,"" #age
+                        ,"pmm"  # bcd4_tr
+                        ,"~I(sqrt(bcd4))"#bcd4_tr
+                        ,"polyreg" #regimen
+                        ,"" #incident_tb
+                        )
+                 ,predictorMatrix = pmat_rsa
+                 ,seed=1569
+                 ,maxit=20
+                 )
+
+# check imputations
+summary(complete(rsa.imp, 0)) # with missingness, index 0
+summary(complete(rsa.imp, 1)) # imputed index 1:K
+```
+
+## Fit model
+
+```{r}
+miceMCError <- function(pooledRes) {
+  monteCarloSE <- sqrt(pooledRes$pooled$b/pooledRes$m)
+  ciLower <- pooledRes$pooled$estimate - qt(0.975,df=pooledRes$m-1)*monteCarloSE
+  ciUpper <- pooledRes$pooled$estimate + qt(0.975,df=pooledRes$m-1)*monteCarloSE
+  mcTable <- cbind(pooledRes$pooled$estimate, monteCarloSE, ciLower, ciUpper)
+  colnames(mcTable) <- c("Estimate", "Monte Carlo SE", "95% CI lower limit", "95% CI upper limit")
+  print(mcTable)
+  print("Warning: 95% CI only quantifies Monte-Carlo uncertainty!")
 }
 ```
 
-```{r echo=FALSE}
-stripplot(imp, cd4~.imp, pch=20, cex = 2)
+### Switzerland
 
-plot(imp, cd4 + reg + who ~.it | .ms, layout = c(2,1))
+```{r}
+fit_ch_imp <- with(data = ch.imp, 
+                  exp = glm(incident_tb ~ sex + age + who + regio + bcd4_tr + brna_tr,
+                            family="binomial"))
+
+pooled_ch <- pool(fit_ch_imp)
+summary(pool(fit_ch_imp))
+miceMCError(pooled_ch)
 ```
 
-```{r echo=FALSE}
-imp1 <- readRDS("../../data_clean/imputed/art_imp1.rds")
-imp2 <- readRDS("../../data_clean/imputed/art_imp2.rds")
-imp3 <- readRDS("../../data_clean/imputed/art_imp3.rds")
-imp4 <- readRDS("../../data_clean/imputed/art_imp4.rds")
-imp5 <- readRDS("../../data_clean/imputed/art_imp5.rds")
+### South Africa
 
-regioNA <- df %>% 
-  filter(is.na(reg))
-
-reg_imp1 <- select(imp1, id, reg) %>% rename(imp1 = reg)
-reg_imp2 <- select(imp2, id, reg) %>% rename(imp2 = reg)
-reg_imp3 <- select(imp3, id, reg) %>% rename(imp3 = reg)
-reg_imp4 <- select(imp4, id, reg) %>% rename(imp4 = reg)
-reg_imp5 <- select(imp5, id, reg) %>% rename(imp5 = reg)
-
-regioNA %>%
-  left_join(reg_imp1, by = "id") %>%
-  left_join(reg_imp2, by = "id") %>%
-  left_join(reg_imp3, by = "id") %>%
-  left_join(reg_imp4, by = "id") %>%
-  left_join(reg_imp5, by = "id") %>% 
-  select(id, imp1, imp2, imp3, imp4, imp5) %>% 
-  kable()
+```{r}
+fit_rsa_imp <- with(data = rsa.imp,
+                    exp = glm(incident_tb ~ sex + age + bcd4_tr, 
+                              family="binomial"))
+pooled_rsa <- pool(fit_rsa_imp)
+summary(pooled_rsa)
+miceMCError(pooled_rsa)
 ```
-
-```{r echo=T}
-#complete
-summary(df)
-#iteration 1
-summary(imp1)
-#iteration2
-summary(imp2)
-#iteration3
-summary(imp3)
-#iteration4
-summary(imp4)
-#iteration5
-summary(imp5)
-```
-
 

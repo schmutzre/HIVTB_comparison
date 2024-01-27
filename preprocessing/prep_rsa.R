@@ -422,7 +422,8 @@ df_art <- df %>%
          !is.na(born) & !is.na(art_start_date),
          age_at_art_start >= 16,
          recent_tb == 0,
-         (date_tb >= art_start_date - 60 | is.na(date_tb))) %>% 
+         (date_tb >= art_start_date - 60 | is.na(date_tb)),
+         id != "KHSB001000038802") %>% #birth date seems to be wrong, age at art start = 117
   mutate(who_stage = case_when(presenting_tb == 1 ~ 3)) %>% 
   rename(gender = sex)
   

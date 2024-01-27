@@ -17,66 +17,6 @@ library(flextable)
 library(forcats)
 ```
 
-## Study population
-
-I defined ART-naive patients as scoring 1 or NA in naive_y and simultaneously scoring 1 or NA in naive_y. Also i filtered out patients with a enrollment data more than a month after their ART start (encart_d). This is the code i use to determine ART-naive patients:
-
-```{r}
-tblBAS <- read.csv("../../data_raw/RSA/tblBAS_incl_naive_imp2.csv") %>% 
-  mutate(across(c(birth_d, enrol_d, recart_d), ~na_if(.x, "")),
-         across(c(birth_d, enrol_d, recart_d), ~as.Date(.x, format = "%Y-%m-%d")),
-         age_at_art_start = interval(birth_d, recart_d) %/% years(1),
-         sex = as.factor(case_when(sex == 1 ~ "Male",
-                         sex == 2 ~ "Female",
-                         TRUE ~ NA))) %>%  
-  rename(born = birth_d, 
-         art_start_date = recart_d) %>% 
-  distinct(patient, .keep_all = TRUE) %>% 
-  select(patient, enrol_d, born, sex, art_start_date, age_at_art_start, naive_y, naive_y_imp)
-
-tblNAIVE <- tblBAS %>% 
-  filter(naive_y_imp %in% c(1,NA) & naive_y %in% c(1,NA)) %>% 
-  mutate(diff = enrol_d - art_start_date) %>% 
-  filter(diff <= 30 | is.na(diff))
-```
-
-
-This leaves us with ``r nrow(tblNAIVE)`` patients.
-
-Using our exclusion/inclusion criteria: 
-```{r}
-tblPOP <- tblNAIVE %>% 
-  filter(between(art_start_date, as.Date("2010-01-01"), as.Date("2022-12-31")),
-         !is.na(sex),
-         !is.na(born) & !is.na(art_start_date),
-         age_at_art_start >= 16)
-```
-
-This leaves us with ``r nrow(tblPOP)`` patients.
-
-## WHO stage
-
-To calculate the baseline WHO-stage, I use the tblVIS dataset and check visits 180 days before and after ART start. For every patient I use the closest non-NA entry to determine his WHO-stage at ART start. Using such a wide time-interval is a rather generous approach. The results are displayed in Table 1.
-
-```{r}
-tblVIS <- read.csv("../../data_raw/RSA/tblVIS.csv") %>% 
-  filter(patient %in% tblNAIVE$patient) %>% 
-  select(patient, vis_d, who_stage) %>% 
-  mutate(vis_d = as.Date(vis_d, format = "%Y-%m-%d")) %>% 
-  left_join(tblBAS %>% select(patient, art_start_date), by = "patient") %>% 
-  group_by(patient) %>%
-  mutate(difference = abs(vis_d - art_start_date),
-         who_stage = as.factor(case_when(who_stage %in% c(2,3) ~ "2/3",
-                               who_stage == 9 ~ NA,
-                               TRUE ~ as.character(who_stage)))) %>%
-  filter(difference <= 180) %>%
-  arrange(patient, is.na(who_stage), difference) %>% 
-  slice(1) %>%
-  ungroup() %>%
-  select(patient, who_stage)
-```
-
-
 ## Table 1
 
 ```{r, include=FALSE}
