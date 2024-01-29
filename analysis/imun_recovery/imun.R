@@ -65,6 +65,57 @@ rna_pres <- rna %>%
 
 #### models --------------------------------------------------------------------
 
+## NEW MODELS (random effect) ##
+# looks good
+
+library(gamm4)
+
+model_cd4_count <- gamm4(cd4_trans ~ cohort + presenting_tb +
+                           s(time_diff, by = presenting_tb, bs = "cr", k = 4),
+                                            random = ~ (1 | id),
+                                            data = cd4)
+
+  rmvn <- function(n, mu, sig) { ## MVN random deviates
+    L <- mroot(sig)
+    m <- ncol(L)
+    t(mu + L %*% matrix(rnorm(m*n), m, n))
+  }  
+  
+Vb <- vcov(model_cd4_count$gam)
+  
+prediction_cd4 <- predict(model_cd4_count$gam, type = "response", se.fit = TRUE, newdata = pred_data)
+se.fit <-  prediction_cd4$se.fit  
+  
+N <- 10000
+BUdiff <- rmvn(N, mu = rep(0, nrow(Vb)), sig = Vb)
+  
+Cg <- predict(model_cd4_count$gam, pred_data, type = "lpmatrix")
+simDev <- Cg %*% t(BUdiff)
+
+absDev <- abs(sweep(simDev, 1, se.fit, FUN = "/"))
+masd <- apply(absDev, 2L, max)
+crit <- quantile(masd, prob = 0.95, type = 8)
+  
+pred <- transform(cbind(data.frame(prediction_cd4), pred_data),
+                    uprP = fit + (2 * se.fit),
+                    lwrP = fit - (2 * se.fit)) %>% 
+  mutate(fit_org = fit^2,
+           lower_org = lwrP^2,
+           upper_org = uprP^2)
+  
+ggplot(pred, aes(x = time_diff)) +
+    facet_wrap(~ presenting_tb) +
+    scale_x_continuous(expand = c(0,0), limits = c(-60, 360), breaks = seq(-60, 360, 60)) +
+    geom_line(aes(y = fit_org, color = cohort)) +
+    geom_ribbon(aes(ymin = lower_org, ymax = upper_org, fill = cohort), alpha = 0.2) +
+    labs(y = "Cd4",
+         x = "Days since ART start")+
+    geom_hline(yintercept = 350, linetype = "dotted") +
+    geom_vline(xintercept = 0, linetype = "dotted") +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  theme_classic(base_size = 10) 
+  
 ### cd4 ###
 
 m.cd4_npres <- gam(cd4 ~ s(time_diff, k = 4, by = cohort, bs = "cr"), 

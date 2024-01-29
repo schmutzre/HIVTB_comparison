@@ -12,8 +12,6 @@ output:
     toc_float: yes
 ---
 
-## TODO: Finish imputation for South Africa
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 data <- readRDS("../../data_clean/art_noTB.rds")
@@ -194,7 +192,7 @@ data.to.impute_ch$incomplete <- NULL
 #' I will include those as predictors in the Imputation model
 ```
 
-### South Africa 
+### South Africa
 
 ```{r}
 data.to.impute_rsa <- syst_miss(data.to.impute_rsa, return = "data")
@@ -221,6 +219,8 @@ I exclude variables that are non-significant in the table. Also variables that h
 
 ## Imputation
 
+Here I include the variables that are significantly related to missingness in the previous model.
+
 ### Switzerland
 
 ```{r}
@@ -236,11 +236,6 @@ pmat_ch <-matrix(
     0,0,0,1,0,1,0,0,0,0, # regimen
     0,0,0,0,0,0,0,0,0,0) #incident_tb
   ,nrow=10,byrow=T)
-
-# The imputation command is then as follows. Notice how
-# the "~I( )" is used to define the passive calculations.
-# As these only work with numbers, we need to express our factor variables
-# as integers.
 
 K <- 15 # number of imputations
 
@@ -279,11 +274,6 @@ pmat_rsa <-matrix(
     1,1,1,0,0,1, # regimen
     0,0,0,0,0,0) # incident_tb
   ,nrow=6,byrow=T)
-
-# The imputation command is then as follows. Notice how
-# the "~I( )" is used to define the passive calculations.
-# As these only work with numbers, we need to express our factor variables
-# as integers.
 
 K <- 15 # number of imputations
 
@@ -341,5 +331,155 @@ fit_rsa_imp <- with(data = rsa.imp,
 pooled_rsa <- pool(fit_rsa_imp)
 summary(pooled_rsa)
 miceMCError(pooled_rsa)
+```
+
+## Time-varying
+
+```{r}
+cd4CH <- readRDS("../../data_clean/ch/cd4_ch.rds") %>% 
+  mutate(cohort = "CH")
+
+cd4CHuni <- cd4CH %>%
+  distinct(id, .keep_all = TRUE) %>% 
+  select(id, presenting_tb, cohort)
+
+cd4RSA <- readRDS("../../data_clean/rsa/cd4_rsa.rds") %>% 
+  mutate(cohort = "RSA")
+
+cd4RSAuni <- cd4RSA %>%
+  distinct(id, .keep_all = TRUE) %>% 
+  select(id, presenting_tb, cohort)
+
+cd4BOTH <- rbind(cd4CH %>% dplyr::select(-timepoint),
+             cd4RSA %>% dplyr::select(-timepoint)) %>% 
+  filter(time_diff >= -60 & time_diff < 420) %>% 
+  mutate(cd4_trans = sqrt(cd4))
+```
+
+Create the functions to calculate the median intervisit time per cohort and the grid.
+
+```{r, intervisit}
+intervisit_Md <- function(data) {
+  
+  result <- data %>%
+    group_by(id) %>% 
+    arrange(id, date_cd4) %>% 
+    mutate(diff = date_cd4 - lag(date_cd4)) %>%
+    filter(!is.na(diff)) %>% 
+    ungroup() %>% 
+    summarise(median_diff = median(diff, na.rm = TRUE)) %>% 
+    as.numeric()
+  
+  return(result)
+  
+}
+
+# Function to fill values into grid for each ID
+
+fill_values_for_id <- function(patient_data, global_grid) {
+  # Assuming 'cohort' and 'presenting_tb' are columns in patient_data
+  cohort_val <- unique(patient_data$cohort)
+  presenting_tb_val <- unique(patient_data$presenting_tb)
+
+  results <- map_df(global_grid, function(grid_day) {
+    interval_data <- patient_data %>%
+      filter(time_diff >= grid_day & time_diff < grid_day + md_intvstCH)
+
+    if (nrow(interval_data) > 0) {
+      selected_measurement <- sample_n(interval_data, 1)
+      tibble(days_since_ARTstart = grid_day, 
+             cd4_value = selected_measurement$cd4, 
+             cohort = cohort_val, 
+             presenting_tb = presenting_tb_val)
+    } else {
+      tibble(days_since_ARTstart = grid_day, 
+             cd4_value = NA_real_, 
+             cohort = cohort_val, 
+             presenting_tb = presenting_tb_val)
+    }
+  })
+
+  return(results)
+}
+
+```
+
+### Switzerland
+
+```{r}
+md_intvstCH <- intervisit_Md(cd4CH) # 4 months
+
+# Create a global grid from 0 to 1080 days (3 years)
+gridCH <- seq(from = 0, to = 1080, by = md_intvstCH)
+
+gridCH_filled <- cd4CH %>%
+  group_by(id) %>%
+  group_modify(~fill_values_for_id(., gridCH)) %>%
+  ungroup()
+
+######## dieser Part meine ich
+attach(gridCH_filled)
+Y_CH <- data.frame(cd4_value)
+X_CH <- data.frame(presenting_tb)
+clus_CH <- data.frame(id)
+# run jomo
+class.imputed_CH <- jomo(Y = Y_CH, 
+                      X = X_CH, 
+                      clus = clus_CH, 
+                      nburn = 1000, 
+                      nbetween = 1000,
+                      nimp = 5)
+
+# use mitools package to fit data and apply Rubin's rules
+# split imputations, and exclude original data (imputation "0")
+imp.list_CH <- imputationList(split(class.imputed_CH, 
+                                 class.imputed_CH$Imputation)[-1]) 
+
+
+detach(gridCH_filled)
+```
+
+### South Africa
+
+```{r}
+md_intvstRSA <- intervisit_Md(cd4RSA) # 1 year
+
+# Create a global grid from 0 to 1080 days (3 years)
+gridRSA <- seq(from = 0, to = 1080, by = md_intvstRSA)
+
+gridRSA_filled <- cd4RSA %>%
+  group_by(id) %>%
+  group_modify(~fill_values_for_id(., gridRSA)) %>%
+  ungroup() 
+
+attach(gridRSA_filled)
+Y_RSA <- data.frame(cd4_value)
+X_RSA <- data.frame(presenting_tb)
+clus_RSA <- data.frame(id)
+# run jomo
+set.seed(1569)
+class.imputed_RSA <- jomo(Y = Y_RSA, 
+                      X = X_RSA, 
+                      clus = clus_RSA, 
+                      nburn = 1000, 
+                      nbetween = 1000,
+                      nimp = 5)
+
+detach(gridRSAfilled)
+```
+
+## Fit model 
+
+The issue I see with my implementation: I impute the datasets seperately per cohort. 
+At the same time I use cohort as fixed effect in the model i.e. i should feed the model
+the complete dataset.
+
+```{r}
+library(gamm4)
+
+model_cd4_count <- gamm4(cd4_trans ~ cohort + presenting_tb +
+                           s(time_diff, by = presenting_tb, bs = "cr", k = 4),
+                                            random = ~ (1 | id),
+                                            data = cd4)
 ```
 
