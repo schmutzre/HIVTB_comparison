@@ -143,7 +143,7 @@ lab.filtered <- lab %>%
   
 baseline_cd4 <- filteredBOTH_region %>% 
     left_join(lab, by = "id") %>% 
-    mutate(cd4_baseline = ifelse(labdate >= (art_start_date - 180) & labdate <= (art_start_date + 30), cd4, NA)) %>% 
+    mutate(cd4_baseline = ifelse(labdate >= (art_start_date - 180) & labdate <= (art_start_date + 30) & cd4 <= 2000, cd4, NA)) %>% 
     filter(!is.na(cd4_baseline)) %>% 
     arrange(abs(art_start_date - labdate)) %>% 
     group_by(id) %>% 
@@ -423,13 +423,51 @@ lab_both <- lab.filtered %>%
   ungroup() %>% 
   dplyr::select(-cd4date) %>%
   left_join(filteredBOTH.tbsite %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb), by = "id") %>% 
-  mutate(time_diff = as.numeric(labdate - art_start_date, units = "days"))
+  mutate(time_diff = as.numeric(labdate - art_start_date, units = "days"),
+         pre_2016 = as.factor(case_when(art_start_date <= as.Date("2016-12-31") ~ 1,
+                                        TRUE ~ 0)))
 
 lab_cd4 <- lab_both %>% 
   dplyr::select(-rna, -timepoint) %>% 
   filter(!is.na(cd4)) %>% 
   mutate(timepoint = row_number()) %>% 
   rename(date_cd4 = labdate)
+
+## check cd4 over 2,000 ##
+#' I already prevented the baseline cd4 to be over 2000, now i look at the 
+#' non-baseline cases individually
+
+ids_over2k <- lab_cd4 %>%
+  filter(cd4 > 2000) %>%
+  distinct(id)
+
+check <- lab_cd4 %>%
+  filter(id %in% ids_over2k$id)
+
+plot_group <- function(ids, data) {
+  group_data <- data %>% filter(id %in% ids$id)
+  ggplot(group_data, aes(x = time_diff, y = cd4)) +
+    geom_point() +
+    geom_line() +
+    facet_wrap(~id, scales = "free") +
+    theme_minimal()
+}
+
+group1_idsCH <- ids_over2k[1:20,]
+group2_idsCH <- ids_over2k[21:40,]
+group3_idsCH <- ids_over2k[41:57,]
+
+plot_group(group1_idsCH, lab_cd4)
+plot_group(group2_idsCH, lab_cd4)
+plot_group(group3_idsCH, lab_cd4)
+
+jumpy <- 
+  c(17948, 19363, 19581, 19598, 26816, 27172, 27222, 27277, 27325, 27427, 28529, 
+  28542, 31892, 32297, 32571, 43015, 46711, 52425, 52504, 60720, 60867, 90307, 
+  90370, 90566, 91355, 57464, 42704, 42876, 34025)
+
+lab_cd4 <- lab_cd4 %>% 
+  filter(cd4 <= 2000 | id %nin% jumpy)
 
 lab_rna <- lab_both %>% 
   dplyr::select(-cd4, -timepoint) %>% 
@@ -450,7 +488,9 @@ art_ch <- final %>%
          eligibility_art ==1,
          recent_tb == 0,
          (date_tb >= art_start_date - 60 | is.na(date_tb))) %>% 
-  mutate(incident_tb = as.factor(case_incident_2m)) %>% 
+  mutate(incident_tb = as.factor(case_incident_2m),
+         pre_2016 = as.factor(case_when(art_start_date <= as.Date("2016-12-31") ~ 1,
+                            TRUE ~ 0))) %>% 
   dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -regdate, -cdc_group) %>% 
   rename(gender = sex)
 

@@ -88,4 +88,8 @@ plot_group_counts <- function(data, plot_title) {
   return(plot)
 }
 
+#' not included
+#' serves as the negation of the function %in%
+
+`%nin%` = Negate(`%in%`)
 

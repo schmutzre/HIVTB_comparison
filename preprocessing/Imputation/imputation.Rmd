@@ -13,6 +13,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
+set.seed(432)
 knitr::opts_chunk$set(echo = TRUE)
 data <- readRDS("../../data_clean/art_noTB.rds")
 library(mice)
@@ -354,6 +355,12 @@ cd4BOTH <- rbind(cd4CH %>% dplyr::select(-timepoint),
              cd4RSA %>% dplyr::select(-timepoint)) %>% 
   filter(time_diff >= -60 & time_diff < 420) %>% 
   mutate(cd4_trans = sqrt(cd4))
+
+cd4BOTH %>% 
+  ggplot(aes(x = time_diff, y = cd4_trans)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE)
+
 ```
 
 Create the functions to calculate the median intervisit time per cohort and the grid.
@@ -417,7 +424,6 @@ gridCH_filled <- cd4CH %>%
   group_modify(~fill_values_for_id(., gridCH)) %>%
   ungroup()
 
-######## dieser Part meine ich
 attach(gridCH_filled)
 Y_CH <- data.frame(cd4_value)
 X_CH <- data.frame(presenting_tb)
@@ -457,7 +463,6 @@ Y_RSA <- data.frame(cd4_value)
 X_RSA <- data.frame(presenting_tb)
 clus_RSA <- data.frame(id)
 # run jomo
-set.seed(1569)
 class.imputed_RSA <- jomo(Y = Y_RSA, 
                       X = X_RSA, 
                       clus = clus_RSA, 
@@ -471,8 +476,7 @@ detach(gridRSAfilled)
 ## Fit model 
 
 The issue I see with my implementation: I impute the datasets seperately per cohort. 
-At the same time I use cohort as fixed effect in the model i.e. i should feed the model
-the complete dataset.
+At the same time I use cohort as fixed effect in the model i.e. i should feed the model the complete dataset.
 
 ```{r}
 library(gamm4)
@@ -482,4 +486,3 @@ model_cd4_count <- gamm4(cd4_trans ~ cohort + presenting_tb +
                                             random = ~ (1 | id),
                                             data = cd4)
 ```
-

@@ -223,7 +223,7 @@ tblVIS <- read.csv("data_raw/RSA/tblVIS.csv") %>%
 baseline_cd4 <- tblLAB_CD4 %>% 
   left_join(tblBAS %>% dplyr::select(patient, art_start_date), 
             by = "patient") %>% 
-  mutate(cd4_baseline = as.numeric(ifelse(date_cd4 >= (art_start_date - 180) & date_cd4 <= (art_start_date + 30), 
+  mutate(cd4_baseline = as.numeric(ifelse(date_cd4 >= (art_start_date - 180) & date_cd4 <= (art_start_date + 30) & cd4 <= 2000, 
                                cd4, NA))) %>%
   filter(!is.na(cd4_baseline)) %>% 
   arrange(abs(art_start_date - date_cd4)) %>% 
@@ -383,7 +383,9 @@ df <- tblBAS %>%
              TRUE ~ 0)),
            presenting_tb = prevalent_tb,
            last_persontime = as.numeric(case_when(!is.na(exitdate) ~ exitdate - art_start_date,
-                                       TRUE ~ last_fup_date - art_start_date))) %>% 
+                                       TRUE ~ last_fup_date - art_start_date)),
+           pre_2016 = as.factor(case_when(art_start_date <= as.Date("2016-12-31") ~ 1,
+                                          TRUE ~ 0))) %>% 
   dplyr::select(-enrol_d, -proph_y) %>% 
   distinct(patient, .keep_all = TRUE) %>%
   rename(id = patient) %>% 
@@ -450,12 +452,34 @@ lab_cd4 <- tblLAB_CD4 %>%
   arrange(patient, date_cd4) %>% 
   group_by(patient) %>% 
   mutate(timepoint = row_number(),
-         time_diff = as.numeric(date_cd4 - art_start_date, units = "days")) %>% 
+         time_diff = as.numeric(date_cd4 - art_start_date, units = "days"),
+         pre_2016 = as.factor(case_when(art_start_date <= as.Date("2016-12-31") ~ 1,
+                                        TRUE ~ 0))) %>% 
   ungroup() %>% 
   rename(id = patient)
 
+#' check cd4 counts > 2,000 individually
+
+ids_over2k <- lab_cd4 %>%
+  filter(cd4 > 2000) %>%
+  distinct(id)
+
+check <- lab_cd4 %>%
+  filter(id %in% ids_over2k$id)
+
+group1_idsRSA <- ids_over2k[1:20,]
+group2_idsRSA <- ids_over2k[21:40,]
+
+plot_group(group1_idsRSA, lab_cd4)
+plot_group(group2_idsRSA, lab_cd4)
+
+jumpy_rsa <- c("KHMM001000058230", "KHMM001000094294", "KHNO001000107107", "KHSB001000078920", "KHSB001000160155")
+
+lab_cd4 <- lab_cd4 %>% 
+  filter(cd4 <= 2000 | id %nin% jumpy_rsa)
+
 saveRDS(lab_cd4, "data_clean/rsa/cd4_rsa.rds")
-  
+
 ## rna ##
 
 lab_rna <- tblLAB_RNA %>%
