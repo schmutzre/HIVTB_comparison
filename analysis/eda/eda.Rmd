@@ -36,7 +36,6 @@ rsa <- readRDS("../../data_clean/rsa/art_rsa.rds")
 # Columns #
 
 complete <- complete %>%
-  mutate(presenting_tb = factor(presenting_tb, levels = c(0, 1))) %>%
   mutate(presenting_tb = 
            fct_recode(presenting_tb,
                             "Not presenting with TB" = "0",
@@ -219,10 +218,10 @@ tb$sex <-
 label(tb$sex) <- "Sex"
 
 # Birth country #
-
+tabyl(tb$region)
 tb$region <- 
   factor(tb$region, 
-         levels=c("Sub-Saharan Africa","Europe","North Africa" , "North America", "South/Latin America", "Oceania", "Asia"))
+         levels=c("Europe/Northern America","Africa","Asia/Oceania","South/Latin America" , "Sub-Saharan Africa"))
 label(tb$region) <- "Birth country"
 
 # TB regimen #
@@ -378,13 +377,21 @@ complete %>%
 
 # Figures
 
-## TB Incidence per baseline groups
+### Primary Analysis: TB incidence
 
-![Figure 1: Point-wise TB incidence rate estimate stratified by baseline viral load.](images/incidence_rna-05.png)
+```{r}
+readRDS("../../results/incidenceTB/irrCohort.rds") %>% kable()
+```
 
-![Figure 2: Point-wise TB incidence rate estimate stratified by baseline CD4 Count.](images/incidence_cd4-09.png)
+-   IRR comparing the incidence rate of TB in RSA relative to Switzerland.
 
-![Figure 3: Incident Rate Ratios (IRRs) of Tuberculosis Incidence relative to the Reference Group (CD4 Count ≥ 350 at ART Initiation), compared separately for each cohort.](images/irr-02.png)
+![Figure 1: Point-wise TB incidence rate estimate stratified by baseline viral load.](images/rnaGrouped.png)
+
+![Figure 2: Point-wise TB incidence rate estimate stratified by baseline CD4 Count.](images/cd4Grouped.png)
+
+![Figure 3: Incident Rate Ratios (IRRs) of Tuberculosis Incidence relative to the Reference Group (CD4 Count ≥ 350 at ART Initiation), compared separately for each cohort.](images/irr-03.png)
+
+![Figure 4: Point-wise TB incidence rate estimate stratified by baseline CD4 Count and ART start date pre/post 2016.](images/2k16.png)
 
 ## Survival analysis
 

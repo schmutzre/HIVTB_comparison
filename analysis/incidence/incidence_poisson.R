@@ -10,7 +10,8 @@ pacman:: p_load(
   gridExtra,
   ggpubr,
   wesanderson,
-  forcats
+  forcats,
+  fmsb
   )
 
 #### Data prep -----------------------------------------------------------------
@@ -25,9 +26,12 @@ df <- readRDS("data_clean/art_noTB.rds") %>%
            incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
            incident_tb == 0 ~ last_persontime/360),
     cohort = fct_relevel(cohort, "RSA"),
-    cd4_group = fct_relevel(cd4_group, "350+")) %>% 
-  dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, cd4_group, rna_group) %>% 
+    cd4_group = fct_relevel(cd4_group, "350+"),
+    pre_2016 = fct_relevel(pre_2016, "1")) %>% 
+  dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, cd4_group, rna_group, pre_2016) %>% 
   filter(persontime_years > 0)
+
+levels(df$pre_2016) <- c("pre", "post")
   
 df_manual <- df %>% # calculating the incident rates per cohort
   group_by(cohort) %>% 
@@ -37,7 +41,21 @@ df_manual <- df %>% # calculating the incident rates per cohort
          rna_group = "Overall",
          cd4_group = "Overall")
 
-print(irr <- df_manual$pois$rate[df_manual$cohort == "RSA"] / df_manual$pois$rate[df_manual$cohort == "CH"])
+#### IRR [RSA / CH] ------------------------------------------------------------
+
+a <-  df_manual %>% filter(cohort == "RSA") %>% pull(sum_incident_tb)
+b <-  df_manual %>% filter(cohort == "CH") %>% pull(sum_incident_tb)
+PT1 <- df_manual %>% filter(cohort == "RSA") %>% pull(sum_person_years)
+PT0 <- df_manual %>% filter(cohort == "CH") %>% pull(sum_person_years)
+irr <- rateratio(a, b, PT1, PT0, conf.level=0.95)
+df_irr <- tibble(
+  est = irr[["estimate"]],
+  lwr = irr[["conf.int"]][1],
+  uppr = irr[["conf.int"]][2],
+  cohort = "RSA"
+)
+
+saveRDS(df_irr, "results/incidenceTB/irrCohort.rds")
 
 #### Incidence per baseline group ----------------------------------------------
 
@@ -68,7 +86,7 @@ plot_rna <- df_rna %>%
 
 print(plot_rna)
 
-ggsave(plot = plot_rna, filename = "results/incidence/incidence_rna.png", 
+ggsave(plot = plot_rna, filename = "results/incidenceTB/rnaGrouped.png", 
        width = 16, height = 11, units = "cm")
 
 ### CD4 ###
@@ -96,7 +114,7 @@ plot_cd4 <- df_cd4 %>%
 
 print(plot_cd4)
 
-ggsave(plot = plot_cd4, filename = "results/incidence/incidence_cd4.png", 
+ggsave(plot = plot_cd4, filename = "results/incidenceTB/cd4Grouped.png", 
        width = 16, height = 11, units = "cm")
 
 ## Combined ##
@@ -121,7 +139,61 @@ plot_both <- annotate_figure(plot_both,
 plot_both
 
 # Save the combined plot
-ggsave(plot = plot_both, file = "results/incidence/incidence_both.png", 
+ggsave(plot = plot_both, file = "results/incidenceTB/bothGrouped.png", 
+       width = 16, height = 11, units = "cm") 
+
+#### Stratifying by pre/post 2016 ----------------------------------------------
+
+### RNA ###
+
+df_rna2k16 <- df %>% 
+  mutate(rna_group = case_when(is.na(rna_group) | rna_group == "NA" ~ "NA",
+                               rna_group %in% c("0-999", "1000-9999") ~ "< 10^3",
+                               TRUE ~ ">= 10^3")) %>% 
+  group_by(cohort, rna_group, pre_2016) %>% 
+  summarise(sum_incident_tb = sum(incident_tb == 1), 
+            sum_person_years = sum(persontime_years)/1000) %>% 
+  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95)) 
+
+plot_rna2k16 <- df_rna2k16 %>% 
+  ggplot(aes(x = rna_group, y = pois$rate, shape = as.factor(pre_2016))) +
+  geom_point(aes(color = cohort), position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
+                position = position_dodge(width = 0.5), width = 0.2) +
+  labs(x = "Baseline CD4 count", y = "Incident TB rate per 1,000 person-years") +
+  scale_y_continuous() +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  theme_classic() +
+  scale_x_discrete(labels = c("NA" = "NA", "< 10^3" = expression("< 10"^3), ">= 10^3" = expression("\u2265 10"^3))) +
+  facet_wrap(~cohort, scales = "free_y") 
+
+plot_rna2k16
+
+### CD4 ###
+
+df_cd42k16 <- df %>% 
+  mutate(cd4_group = case_when(is.na(cd4_group) | cd4_group == "NA" ~ "NA",
+                               TRUE ~ cd4_group)) %>% 
+  group_by(cohort, cd4_group, pre_2016) %>% 
+  summarise(sum_incident_tb = sum(incident_tb == 1), 
+            sum_person_years = sum(persontime_years)/1000) %>% 
+  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95)) 
+
+plot_cd42k16 <- df_cd42k16 %>% 
+  ggplot(aes(x = cd4_group, y = pois$rate, shape = as.factor(pre_2016))) +
+  geom_point(aes(color = cohort), position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
+                position = position_dodge(width = 0.5), width = 0.2) +
+  labs(x = "Baseline CD4 count", y = "Incident TB rate per 1,000 person-years") +
+  scale_y_continuous() +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  theme_classic() +
+  facet_wrap(~cohort, scales = "free_y")
+
+plot_cd42k16
+
+ggsave(plot = plot_cd42k16, 
+       file = "results/incidenceTB/2k16.png", 
        width = 16, height = 11, units = "cm") 
 
 #### IRR compared to 350+ group ------------------------------------------------
@@ -166,5 +238,5 @@ combined_plot <- ggplot(combined_data, aes(x = term, y = estimate, ymin = conf.l
 
 combined_plot
 
-ggsave(plot = combined_plot, file = "results/incidence/irr.png", 
+ggsave(plot = combined_plot, file = "results/incidenceTB/irr.png", 
        width = 16, height = 11, units = "cm") 

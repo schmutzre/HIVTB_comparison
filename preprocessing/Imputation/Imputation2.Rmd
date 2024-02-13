@@ -1,0 +1,396 @@
+---
+title: "Untitled"
+author: "Remo Schmutz"
+date: "2024-01-31"
+output:
+  html_document: 
+    fig_caption: true
+    code_folding: hide
+    highlight: haddock
+    theme: flatly
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(123)
+library(tidyverse)
+library(jomo)
+library(mitools) 
+library(gamm4)
+```
+
+## Time-varying
+
+```{r, echo=FALSE}
+cd4CH <- readRDS("../../data_clean/ch/cd4_ch.rds") %>% 
+  mutate(id = as.factor(id),
+         cohort = as.factor("CH"),
+         cd4_trans = sqrt(cd4)) %>% 
+  filter(time_diff >= -60 & time_diff < 360) %>% 
+  dplyr::select(-cd4, -art_start_date, -disease_tb, -date_tb, -timepoint,
+                -pre_2016)
+
+cd4RSA <- readRDS("../../data_clean/rsa/cd4_rsa.rds") %>% 
+  mutate(id = as.factor(id),
+         cohort = as.factor("RSA"),
+         cd4_trans = sqrt(cd4)) %>% 
+  filter(time_diff >= -60 & time_diff < 360)  %>% 
+  dplyr::select(-cd4, -disease_tb, -date_tb, -timepoint,
+                -pre_2016)
+
+lab_rawRSA <- read.csv("../../data_raw/RSA/tblLAB_CD4.csv") %>% 
+  filter(patient %in% cd4RSA$id) %>% 
+  rename(id = patient) %>% 
+  mutate(date_cd4 = as.Date(cd4_d)) %>% 
+  group_by(id) %>% 
+  left_join(cd4RSA %>% select(id, art_start_date), by = "id") %>% 
+  distinct(id, date_cd4, .keep_all = TRUE) %>% 
+  mutate(time_diff = date_cd4 - art_start_date) %>% 
+  filter(time_diff < 360 & time_diff > -30)
+
+cd4RSA <- cd4RSA %>% 
+  select(-art_start_date)
+
+cd4BOTH <- rbind(cd4CH %>% select(-region), cd4RSA)
+```
+
+Check assumptions for imputation [Switzerland]
+
+```{r}
+# normality of cd4_trans
+cd4CH %>% 
+  ggplot() +
+  geom_histogram(aes(x = cd4_trans, y = after_stat(density)), color = "white")+
+  theme_classic() +
+  scale_y_continuous(expand = c(0,0))
+
+# linearity of time on cd4_trans
+cd4CH %>% 
+  ggplot(aes(x = time_diff, y = cd4_trans)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE, color = "blue") + 
+  geom_smooth(method = "lm", se = FALSE, color = "red") +  
+  theme_classic() +
+  labs(x = "Time Difference", 
+       y = "CD4 Trans", 
+       title = "Relationship between Time Difference and CD4 Trans")
+
+```
+
+Create the functions to calculate the median intervisit time per cohort and the grid.
+
+```{r, intervisit, echo=FALSE}
+intervisit_Md <- function(data) {
+  
+  result <- data %>%
+    group_by(id) %>% 
+    arrange(id, date_cd4) %>% 
+    mutate(diff = date_cd4 - lag(date_cd4)) %>%
+    filter(!is.na(diff)) %>% 
+    ungroup() %>% 
+    summarise(median_diff = median(diff, na.rm = TRUE)) %>% 
+    as.numeric()
+  
+  return(result)
+  
+}
+
+fill_values_for_id <- function(patient_data, global_grid) {
+  
+  # Exclude measurement variables 'time_diff' and 'cd4_value' from unique value extraction
+  measurement_vars <- c("id", "time_diff", "cd4_trans", "date_cd4", "cohort")
+  unique_val_columns <- setdiff(names(patient_data), measurement_vars)
+
+  # Dynamically create a tibble of unique values for each non-measurement column
+  unique_vals <- patient_data %>%
+    select(all_of(unique_val_columns)) %>%
+    summarise(across(everything(), unique))
+
+  # Assuming md_intvstCH is defined elsewhere in your code
+  results <- map_df(global_grid, function(grid_day) {
+    interval_data <- patient_data %>%
+      filter(time_diff >= grid_day & time_diff < grid_day + md_intvstCH)
+
+    if (nrow(interval_data) > 0) {
+      selected_measurement <- sample_n(interval_data, 1)
+      tibble(time_diff = grid_day, cd4_trans = selected_measurement$cd4_trans)
+    } else {
+      tibble(time_diff = grid_day, cd4_trans = NA_real_)
+    }
+  })
+
+  # Join the unique values with the results
+  results <- left_join(results, unique_vals, by = character())
+
+  return(results)
+}
+```
+
+### Switzerland
+
+```{r, cache = TRUE, echo=FALSE}
+md_intvstCH <- intervisit_Md(cd4CH) # 82 days
+
+# Create a global grid from 0 to 420 days
+gridCH <- seq(from = -60, to = 360, by = md_intvstCH)
+
+gridCH_filled <- cd4CH %>%
+  group_by(id) %>%
+  group_modify(~fill_values_for_id(., gridCH)) %>%
+  ungroup() %>% 
+  mutate(time_diff_tr = time_diff + 60) 
+
+Y_CH <- data.frame(gridCH_filled$cd4_trans)
+X_CH <- data.frame(gridCH_filled$presenting_tb, 
+                   gridCH_filled$time_diff_tr, 
+                   gridCH_filled$sex, 
+                   gridCH_filled$age_at_art_start)
+clus_CH <- data.frame(gridCH_filled$id)
+# run jomo
+class.imputed_CH <- jomo(Y = Y_CH, 
+                      X = X_CH, 
+                      clus = clus_CH, 
+                      nburn = 1000, 
+                      nbetween = 1000,
+                      nimp = 2)
+
+# split imputations, and exclude original data (imputation "0")
+
+imp.list_CH <- imputationList(split(class.imputed_CH, 
+                                 class.imputed_CH$Imputation)[-1]) 
+
+```
+
+### South Africa
+
+```{r cache=TRUE, echo=FALSE}
+md_intvstRSA <- intervisit_Md(lab_rawRSA) 
+
+result <- lab_rawRSA %>%
+    group_by(id) %>% 
+    arrange(id, date_cd4) %>% 
+    mutate(diff = date_cd4 - lag(date_cd4)) %>% 
+    filter(!is.na(diff)) %>% 
+    ungroup() %>% 
+    summarise(median_diff = median(diff, na.rm = TRUE)) %>% 
+    as.numeric()
+
+md_intvstRSA <- intervisit_Md(cd4RSA) 
+
+check <- cd4RSA %>%
+    group_by(id) %>% 
+    arrange(id, date_cd4) %>% 
+    mutate(diff = date_cd4 - lag(date_cd4)) 
+    filter(!is.na(diff)) %>% 
+    ungroup() %>%
+    summarise(median_diff = median(diff, na.rm = TRUE)) %>% 
+    as.numeric()
+
+md_intvstRSA
+# Create a global grid
+gridRSA <- seq(from = -60, to = 420, by = md_intvstRSA)
+
+##### create training set
+unique_ids <- unique(cd4RSA$id)
+sample_frac <- 0.2 # Change this to your desired fraction
+selected_ids <- sample(unique_ids, size = floor(length(unique_ids) * sample_frac))
+cd4RSA_train <- cd4RSA %>% filter(id %in% selected_ids)
+######  
+
+gridRSA_filled <- cd4RSA_train %>%
+  group_by(id) %>%
+  group_modify(~fill_values_for_id(., gridRSA)) %>%
+  ungroup() %>% 
+  mutate(cd4_tr = sqrt(cd4_value))
+
+attach(gridRSA_filled)
+Y_RSA <- data.frame(cd4_tr)
+X_RSA <- data.frame(presenting_tb, time_diff) # covariaten einfügen  (von oben)
+clus_RSA <- data.frame(id)
+# run jomo
+class.imputed_RSA <- jomo(Y = Y_RSA, 
+                      X = X_RSA, 
+                      clus = clus_RSA, 
+                      nburn = 1000, 
+                      nbetween = 1000,
+                      nimp = 2)
+
+imp.list_RSA <- imputationList(split(class.imputed_RSA, 
+                                 class.imputed_RSA$Imputation)[-1]) 
+
+detach(gridRSA_filled)
+```
+
+## Fit model 
+
+### Complete dataset
+```{r, warning=FALSE}
+library(gamm4)
+library(wesanderson)
+source("../../utils/plot.R")
+
+cd4BOTH$interaction_term <- interaction(cd4BOTH$cohort, cd4BOTH$presenting_tb)
+
+model_cd4_count <- gamm4(cd4_trans ~ cohort + presenting_tb  +
+                           s(time_diff, by = interaction_term, bs = "cr", k = 4),
+                                            random = ~ (1 | id),
+                                            data = cd4BOTH)
+
+pred_complete <- pred_trend(model_cd4_count, data = cd4BOTH)
+
+ggplot(pred_complete, aes(x = time_diff)) +
+  facet_wrap(~presenting_tb) +
+  scale_x_continuous(expand = c(0,0), limits = c(-60, 360), breaks = seq(-60, 360, 60)) +
+  geom_line(aes(y = fit_org, color = cohort)) +
+  geom_ribbon(aes(ymin = lower_org, ymax = upper_org, fill = cohort), alpha = 0.2) +
+  labs(x = "Days after ART start",
+       y = expression("CD4 count (cells/µl)")) +
+  geom_hline(yintercept = 350, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  theme_classic(base_size = 10) +
+  theme(legend.position = "top", legend.title = element_blank(),
+        panel.spacing.x = unit(.66, "cm"),
+        plot.title.position = "plot",
+        plot.title = element_text(face = 2, size = 10)) 
+
+```
+
+
+```{r, warning=FALSE}
+ch1 <- imp.list_CH$imputations$"1" %>% mutate(cohort = as.factor("CH"),
+                                              time_diff = gridCH_filled.time_diff_tr - 60)
+
+ch2 <- imp.list_CH$imputations$"2" %>% mutate(cohort = as.factor("CH"),
+                                              time_diff = gridCH_filled.time_diff_tr - 60)
+
+rsa1 <- imp.list_RSA$imputations$"1"%>% mutate(cohort = as.factor("RSA"),
+                                               time_diff = gridCH_filled.time_diff_tr - 60)
+
+rsa2 <- imp.list_RSA$imputations$"2" %>% mutate(cohort = as.factor("RSA"),
+                                                time_diff = gridCH_filled.time_diff_tr - 60)
+
+# first 
+cd41 <- rbind(ch1, rsa1) %>% 
+  mutate(presenting_tb = as.factor(presenting_tb-1))
+
+cd41$interaction_term <- interaction(cd41$cohort, cd41$presenting_tb)
+
+model_cd4_count_first <- gamm4(cd4_tr ~ cohort + presenting_tb  +
+                           s(time_diff, by = interaction_term, bs = "cr", k = 4),
+                                            random = ~ (1 | clus),
+                                            data = cd41)
+pred_imp1 <- pred_trend(model = model_cd4_count_first, data = cd41)
+
+
+imp1 <- ggplot(pred_imp1, aes(x = time_diff)) +
+  facet_wrap(~presenting_tb) +
+  scale_x_continuous(expand = c(0,0), limits = c(-60, 360), breaks = seq(-60, 360, 60)) +
+  geom_line(aes(y = fit_org, color = cohort)) +
+  geom_ribbon(aes(ymin = lower_org, ymax = upper_org, fill = cohort), alpha = 0.2) +
+  labs(x = "Days after ART start",
+       y = expression("CD4 count (cells/µl)"),
+       title = "Imputation 1") +
+  geom_hline(yintercept = 350, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  theme_classic(base_size = 10) +
+  theme(legend.position = "top", legend.title = element_blank(),
+        panel.spacing.x = unit(.66, "cm"),
+        plot.title.position = "plot",
+        plot.title = element_text(face = 2, size = 10)) 
+
+
+# second 
+cd42 <- rbind(ch2, rsa2) %>% 
+  mutate(presenting_tb = as.factor(presenting_tb-1))
+
+cd42$interaction_term <- interaction(cd42$cohort, cd42$presenting_tb)
+
+model_cd4_count_second <- gamm4(cd4_tr ~ cohort + presenting_tb  +
+                           s(time_diff, by = interaction_term, bs = "cr", k = 4),
+                                            random = ~ (1 | clus),
+                                            data = cd42)
+pred_imp2 <- pred_trend(model = model_cd4_count_second, data = cd42)
+
+imp2 <- ggplot(pred_imp2, aes(x = time_diff)) +
+  facet_wrap(~presenting_tb) +
+  scale_x_continuous(expand = c(0,0), limits = c(-60, 360), breaks = seq(-60, 360, 60)) +
+  geom_line(aes(y = fit_org, color = cohort)) +
+  geom_ribbon(aes(ymin = lower_org, ymax = upper_org, fill = cohort), alpha = 0.2) +
+  labs(x = "Days after ART start",
+       y = expression("CD4 count (cells/µl)"),
+       title = "Imputation 2") +
+  geom_hline(yintercept = 350, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  theme_classic(base_size = 10) +
+  theme(legend.position = "top", legend.title = element_blank(),
+        panel.spacing.x = unit(.66, "cm"),
+        plot.title.position = "plot",
+        plot.title = element_text(face = 2, size = 10)) 
+
+ggpubr::ggarrange(imp1, imp2, ncol = 1)
+
+```
+
+```{r, warning=FALSE}
+sample <- gridCH_filled %>% 
+  filter(id == 14919) %>% 
+  select(time_diff, id, cd4_value) %>% 
+  mutate(type = as.factor(case_when(is.na(cd4_value)~ "imputed",
+                                    TRUE ~ "original")))
+
+sample_imp <- ch1 %>% 
+  filter(clus == 14919) %>% 
+  mutate(cd4_imp = cd4_tr^2) %>% 
+  select(cd4_imp, time_diff)
+
+sample <- sample %>% 
+  left_join(sample_imp, by = "time_diff") 
+
+sample %>% ggplot(aes(x = time_diff)) + 
+  geom_point(aes(y = cd4_imp, color = type))
+```
+```{r}
+# library(dplyr)
+# library(ggplot2)
+# 
+# # Sample 10 random IDs
+# set.seed(123) # for reproducibility
+# sample_ids <- sample(unique(gridCH_filled$id), 10)
+# 
+# # Initialize an empty dataframe to store combined results
+# combined_sample <- data.frame()
+# 
+# # Loop through each sampled ID and process the data
+# for (id in sample_ids) {
+#   sample <- gridCH_filled %>% 
+#     filter(id == id) %>% 
+#     select(time_diff, id, cd4_value) %>% 
+#     mutate(type = as.factor(case_when(is.na(cd4_value)~ "imputed",
+#                                       TRUE ~ "original")))
+# 
+#   sample_imp <- ch1 %>% 
+#     filter(clus == id) %>% 
+#     mutate(cd4_imp = cd4_tr^2) %>% 
+#     select(cd4_imp, time_diff)
+# 
+#   sample <- sample %>% 
+#     left_join(sample_imp, by = "time_diff")
+# 
+#   # Combine with the main dataframe
+#   combined_sample <- rbind(combined_sample, sample)
+# }
+# 
+# # Create the plot with facet_wrap
+# ggplot(combined_sample, aes(x = time_diff)) +
+#   geom_point(aes(y = cd4_imp, color = type)) +
+#   facet_wrap(~ id, scales = "free_x")
+```
+

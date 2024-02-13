@@ -44,23 +44,3 @@ saveRDS(tb, "data_clean/tb.rds")
 
 art_noTB <- rbind(art_noTB_ch, art_noTB_rsa)
 saveRDS(art_noTB, "data_clean/art_noTB.rds")
-
-#### For Lukas to check
-
-# library(janitor)
-# library(flextable)
-# 
-# flextable(
-#   tabyl(art_ch$treatment, ))
-# 
-# freq_table <- tabyl(art_ch$treatment, show_na = FALSE)
-# freq_table2 <- tabyl(art_rsa$treatment, show_na = FALSE)
-# # Sort by proportion and get top 5
-# top_ch <- freq_table[order(-freq_table$percent), ][1:5, ]
-# top_rsa <- freq_table2[order(-freq_table2$percent), ][1:5, ]
-# 
-# 
-# table(art_ch$regimen_tb)
-# table(art_ch$regimen_tb_group)
-# 
-# table(art_rsa$regimen_tb)

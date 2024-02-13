@@ -65,9 +65,11 @@ filteredBOTH <- complete_ch %>%
   mutate(
     region = trimws(region),
     region = as.factor(case_when(
-      region %in% c("Southern Europe", "Western Europe", "Northern Europe", "Eastern Europe") ~ "Europe",
-      region %in% c("Eastern Africa", "Middle Africa", "Southern Africa", "Western Africa") ~ "Sub-Saharan Africa",
-      region %in% c("Eastern Asia", "South-Eastern Asia", "Southern Asia", "Western Asia") ~ "Asia",
+      region %in% c("Southern Europe", "Western Europe", "Northern Europe", "Eastern Europe", "Northern America") ~ "Europe/Northern America",
+      region %in% c("Eastern Africa", "Middle Africa", "Southern Africa", "Western Africa", "Northern Africa") ~ "Africa",
+      region %in% c("Eastern Asia", "South-Eastern Asia", "Southern Asia", "Western Asia", "Oceania") ~ "Asia/Oceania",
+      region %in% c("Central America", "Latin America and the Caribbean", "South America", "South/Latin America") ~ "South/Latin America",
+      region %in% "Unknown/World" ~ NA,
       TRUE ~ region
     ))
   )
@@ -80,55 +82,33 @@ filteredBOTH <- as_factor(filteredBOTH, levels="labels") %>%
 
 #### Birth country / nationality -----------------------------------------------
 
-# Define a function to map countries to continents
 get_continent <- function(country) {
-    africa_countries <- c("Algeria", "Angola", "Cameroon", "Côte dIvoire", "Ethiopia", "Eritrea", "Gambia", "Ghana",
-                          "Guinea", "Kenya", "Kongo (Brazzaville)", "Kongo (Kinshasa)", "Mauritania", "Nigeria",
-                          "Somalia", "South Africa", "Togo", "Zimbabwe", "Uganda")
     
-    if (country %in% africa_countries) {
-      return("Sub-Saharan Africa")
-    } else if (country %in% c("Egypt", "Morocco")) {
-      return("North Africa")
-    } else if (country %in% c("Russia", "Austria", "Romania", "Italy", "Spain", "Portugal", "Switzerland", "Russian Federation")) {
-      return("Europe")
-    } else if (country %in% c("United States", "Canada")) {
-      return("North America")
-    } else if (country %in% c("Argentina", "Chile", "Brasil", "Peru", "Bolivia")) {
+  africa_countries <- c("Algeria", "Angola", "Cameroon", "Côte dIvoire", "Ethiopia", "Eritrea", "Gambia", "Ghana",
+                          "Guinea", "Kenya", "Kongo (Brazzaville)", "Kongo (Kinshasa)", "Mauritania", "Nigeria",
+                          "Somalia", "South Africa", "Togo", "Zimbabwe", "Uganda", "Egypt", "Morocco")
+   
+  if (country %in% africa_countries) {
+      return("Africa")
+    } else if (country %in% c("Russia", "Austria", "Romania", "Italy", "Spain", "Portugal", "Switzerland", "Russian Federation", "United States", "Canada")) {
+      return("Europe/Northern America")
+    } else if (country %in% c("Argentina", "Chile", "Brasil", "Peru", "Bolivia", "South America", "Latin America and the Caribbean")) {
       return("South/Latin America")
     } else if (country %in% c("Thailand", "Indonesia", "Cambodia", "Vietnam")) {
-      return("Asia")
+      return("Asia/Oceania")
     }
     else {
-      return("Unknown")
+      return(NA)
     } 
   }
   
-# A second function if the birth country isnt available. 
-map_to_continent <- function(region) {
-  case_when(
-    region %in% c("Western Africa", "Eastern Africa", "Middle Africa", "Southern Africa", "Sub-Saharan Africa") ~ "Sub-Saharan Africa",
-    region == "Northern Africa" ~ "North Africa",
-    region %in% c("Southern Europe", "Eastern Europe", "Northern Europe", "Western Europe", "Europe") ~ "Europe",
-    region %in% c("Eastern Asia", "Southern Asia", "South-Eastern Asia", "Western Asia", "Central Asia", "Asia") ~ "Asia",
-    region == "Northern America" ~ "North America",
-    region %in% c("South America", "Latin America and the Caribbean", "Central America") ~ "South/Latin America",
-    region == "Oceania" ~ "Oceania",
-    TRUE ~ "Unknown"
-  )
-}
-
 #' Note, the birth country is mostly available for TB patients, but not for non-TB patients
 
 filteredBOTH_region <- filteredBOTH %>%
-  mutate(region_born = case_when(disease_tb == 1 ~ sapply(tbd_pat_birth, get_continent),
-                                 TRUE ~ sapply(tbd_pat_birth, get_continent)),
+  mutate(region_born = sapply(tbd_pat_birth, get_continent),
           region_born = case_when(
-          region_born != "Unknown" ~ region_born,
-          TRUE ~ map_chr(region, map_to_continent)),
-         region_born = case_when(
-           region_born != "Unknown" ~ region_born,
-           TRUE ~ NA),
+          !is.na(region_born) ~ region_born,
+          TRUE ~ region),
          case_incident_2m = case_when(case_incident_2m == "Incident TB" ~ 1,
                                       TRUE ~ 0)) %>% 
   dplyr::select(-region, -tbd_pat_birth) %>% 
@@ -163,9 +143,9 @@ colnames_x <- paste0(setdiff(colnames(filteredBOTH), "id"), ".x")
   
 filteredBOTH.lab <- filteredBOTH_region %>% 
     left_join(baseline_cd4 %>% 
-                dplyr::select(id,cd4_baseline, labdate), by = "id") %>% 
+                dplyr::select(id, cd4_baseline, labdate), by = "id") %>% 
     left_join(baseline_rna %>% 
-                dplyr::select(id,rna_baseline, labdate), by = "id") %>% 
+                dplyr::select(id, rna_baseline, labdate), by = "id") %>% 
     dplyr::select(c(id, all_of(colnames(filteredBOTH_region)), cd4_baseline, labdate.x, rna_baseline, labdate.y)) %>% 
     rename(labdate_cd4 = labdate.x, labdate_rna = labdate.y) %>% 
     rename_with(~ str_replace_all(., "\\..$", ""))
@@ -210,9 +190,10 @@ who_stages <- filteredBOTH.lab %>%
       (cdc_group == "B" & cd4_baseline >= 350) ~ 2,
       (cdc_group == "B" & cd4_baseline < 350) ~ 3,
       cdc_group == "C" ~ 4
-    ))) %>% 
+    )),
+    who_stage = as.factor(ifelse(who_stage %in% c(1,2), "1/2", "3/4"))) %>% 
     ungroup() 
-  
+
 filteredBOTH.who <- filteredBOTH.lab %>% 
     left_join(who_stages %>% dplyr::select(id, who_stage, cdc_group), by = "id") 
   
@@ -422,7 +403,7 @@ lab_both <- lab.filtered %>%
   mutate(timepoint = row_number()) %>% 
   ungroup() %>% 
   dplyr::select(-cd4date) %>%
-  left_join(filteredBOTH.tbsite %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb), by = "id") %>% 
+  left_join(filteredBOTH.tbsite %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb, sex, age_at_art_start, cd4_baseline, region, who_stage, regimen), by = "id") %>% 
   mutate(time_diff = as.numeric(labdate - art_start_date, units = "days"),
          pre_2016 = as.factor(case_when(art_start_date <= as.Date("2016-12-31") ~ 1,
                                         TRUE ~ 0)))
@@ -432,42 +413,6 @@ lab_cd4 <- lab_both %>%
   filter(!is.na(cd4)) %>% 
   mutate(timepoint = row_number()) %>% 
   rename(date_cd4 = labdate)
-
-## check cd4 over 2,000 ##
-#' I already prevented the baseline cd4 to be over 2000, now i look at the 
-#' non-baseline cases individually
-
-ids_over2k <- lab_cd4 %>%
-  filter(cd4 > 2000) %>%
-  distinct(id)
-
-check <- lab_cd4 %>%
-  filter(id %in% ids_over2k$id)
-
-plot_group <- function(ids, data) {
-  group_data <- data %>% filter(id %in% ids$id)
-  ggplot(group_data, aes(x = time_diff, y = cd4)) +
-    geom_point() +
-    geom_line() +
-    facet_wrap(~id, scales = "free") +
-    theme_minimal()
-}
-
-group1_idsCH <- ids_over2k[1:20,]
-group2_idsCH <- ids_over2k[21:40,]
-group3_idsCH <- ids_over2k[41:57,]
-
-plot_group(group1_idsCH, lab_cd4)
-plot_group(group2_idsCH, lab_cd4)
-plot_group(group3_idsCH, lab_cd4)
-
-jumpy <- 
-  c(17948, 19363, 19581, 19598, 26816, 27172, 27222, 27277, 27325, 27427, 28529, 
-  28542, 31892, 32297, 32571, 43015, 46711, 52425, 52504, 60720, 60867, 90307, 
-  90370, 90566, 91355, 57464, 42704, 42876, 34025)
-
-lab_cd4 <- lab_cd4 %>% 
-  filter(cd4 <= 2000 | id %nin% jumpy)
 
 lab_rna <- lab_both %>% 
   dplyr::select(-cd4, -timepoint) %>% 
@@ -513,7 +458,7 @@ tb_ch <- final %>%
          is.na(exitdate) | exitdate >= art_start_date) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
   dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4, -eligibility_art, -case_incident_2m, -moddate, -enddate, -time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -regdate, -cdc_group)
-  
+
 saveRDS(tb_ch, "data_clean/ch/tb_ch.rds") 
 
 ## Lab data ##

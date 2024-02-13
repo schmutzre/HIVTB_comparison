@@ -986,6 +986,5 @@ incidence_nonsup
 incidenceviral <- grid.arrange(incidence_sup, incidence_nonsup, ncol=2)
 
 ggsave(plot = incidenceviral, filename = "../results/plots_lab/incidenceviral.png", width = width_descr*1.5, height = height_descr)
-
 ```
 

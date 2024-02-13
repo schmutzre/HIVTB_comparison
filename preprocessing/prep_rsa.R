@@ -211,7 +211,8 @@ tblVIS <- read.csv("data_raw/RSA/tblVIS.csv") %>%
          who_stage = as.factor(
            case_when(
            who_stage == 9 ~ NA,
-           TRUE ~ as.character(who_stage)))) %>%
+           TRUE ~ as.character(who_stage))),
+         who_stage = as.factor(ifelse(who_stage %in% c(1,2), "1/2", "3/4"))) %>%
   filter(difference <= 180) %>%
   arrange(patient, is.na(who_stage), difference) %>% 
   slice(1) %>%
@@ -224,7 +225,7 @@ baseline_cd4 <- tblLAB_CD4 %>%
   left_join(tblBAS %>% dplyr::select(patient, art_start_date), 
             by = "patient") %>% 
   mutate(cd4_baseline = as.numeric(ifelse(date_cd4 >= (art_start_date - 180) & date_cd4 <= (art_start_date + 30) & cd4 <= 2000, 
-                               cd4, NA))) %>%
+                               cd4, NA))) %>% 
   filter(!is.na(cd4_baseline)) %>% 
   arrange(abs(art_start_date - date_cd4)) %>% 
   group_by(patient) %>% 
@@ -425,7 +426,7 @@ df_art <- df %>%
          age_at_art_start >= 16,
          recent_tb == 0,
          (date_tb >= art_start_date - 60 | is.na(date_tb)),
-         id != "KHSB001000038802") %>% #birth date seems to be wrong, age at art start = 117
+         id %nin% c("KHSB001000038802", "KHNO001000107107", "KHSB001000189128", "KHSB001000188582")) %>% #birth date seems to be wrong, age at art start = 117 / cd4 > 3500 at art start not plausible
   mutate(who_stage = case_when(presenting_tb == 1 ~ 3)) %>% 
   rename(gender = sex)
   
@@ -447,7 +448,7 @@ saveRDS(df_art_noTB, "data_clean/rsa/art_noTB_rsa.rds")
 
 lab_cd4 <- tblLAB_CD4 %>% 
   filter(patient %in% df_art$id) %>% 
-  left_join(df %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb), 
+  left_join(df %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb, sex, age_at_art_start, cd4_baseline, who_stage, regimen), 
             by = c("patient" = "id")) %>% 
   arrange(patient, date_cd4) %>% 
   group_by(patient) %>% 
@@ -457,26 +458,6 @@ lab_cd4 <- tblLAB_CD4 %>%
                                         TRUE ~ 0))) %>% 
   ungroup() %>% 
   rename(id = patient)
-
-#' check cd4 counts > 2,000 individually
-
-ids_over2k <- lab_cd4 %>%
-  filter(cd4 > 2000) %>%
-  distinct(id)
-
-check <- lab_cd4 %>%
-  filter(id %in% ids_over2k$id)
-
-group1_idsRSA <- ids_over2k[1:20,]
-group2_idsRSA <- ids_over2k[21:40,]
-
-plot_group(group1_idsRSA, lab_cd4)
-plot_group(group2_idsRSA, lab_cd4)
-
-jumpy_rsa <- c("KHMM001000058230", "KHMM001000094294", "KHNO001000107107", "KHSB001000078920", "KHSB001000160155")
-
-lab_cd4 <- lab_cd4 %>% 
-  filter(cd4 <= 2000 | id %nin% jumpy_rsa)
 
 saveRDS(lab_cd4, "data_clean/rsa/cd4_rsa.rds")
 
