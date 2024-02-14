@@ -2,39 +2,41 @@
 #The Cox model is a multiple regression model for survival data that assumes that the effects of the predictor variables upon survival are multiplicative and do not change over time. It estimates how different factors influence the risk (hazard) of experiencing the event at any given time. The output of the Cox model is a set of hazard ratios, one for each level of each factor included in the model, showing how each factor affects survival risk.
 #To summarize, the Kaplan-Meier method describes how survival changes over time, while the Cox model describes how different factors affect survival. While a Kaplan-Meier plot shows raw, unadjusted survival curves for different groups, a Cox model's survival curves show survival probabilities adjusted for other covariates in the model.
 #In this specific context, if the cohorts have other differences besides the location (for example, age distribution, sex ratio, etc.), the survival curves from the Cox model would provide a more accurate comparison between the cohorts, because it adjusts for these potential confounders. The Kaplan-Meier curves might show different survival probabilities, but it's hard to tell how much of that is due to location, and how much is due to other differences between the cohorts.
-##### Libraries ----
+
+#### libraries -----------------------------------------------------------------
+
+library(tidyverse)
+library(cmprsk)
+library(survival)
 
 if(!require(pacman)) install.packages("pacman")
 
 pacman:: p_load(
-  dplyr, # for data wrangling
   lubridate, # for date handling
   rlang, # for '!!' inside the functions
   AER, # for dispersiontest
-  ggplot2, # for plotting
   haven,
   survival,
   gridExtra,
   cmprsk,
   sjPlot
 )
+library(sjPlot)
+##### data preparation ---------------------------------------------------------
 
-##### data import ----
 custom_breaks <- c(16, 24, 34, 44, 100)
 
-cox <- readRDS("data_clean/art_noTB.rds") %>% 
+df <- readRDS("data_clean/art_noTB.rds") %>% 
   mutate(incident_tb = as.numeric(as.character(incident_tb)),
-         persontime_years = case_when(
-           incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
-           incident_tb == 0 ~ last_persontime/360),
          persontime_days = case_when(
            incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")),
            incident_tb == 0 ~ last_persontime),
+         persontime_years = persontime_days / 360,
          persontime_death_days = case_when(
            !is.na(exitdate) ~ as.numeric(difftime(exitdate, art_start_date, units = "days")),
            is.na(exitdate) ~ last_persontime),
          cohort = fct_relevel(cohort, "RSA")) %>% 
-  dplyr::select(id, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, persontime_days, cd4_group, age_at_art_start, gender, exitdate) %>% 
+  dplyr::select(cohort, art_start_date, incident_tb, persontime_years, cd4_group, age_at_art_start, gender) %>% 
   filter(persontime_years > 0) %>% 
   mutate(event_type = as.factor(case_when(
     incident_tb == 1 ~ 1,
@@ -42,28 +44,28 @@ cox <- readRDS("data_clean/art_noTB.rds") %>%
     TRUE ~ 0 # Loss to follow-up isnt considered a competing risk
   )))
 
-#### model ----
+#### model ---------------------------------------------------------------------
 
-# Create a survival object with time and event variables
-cox.surv_obj <- Surv(cox$persontime_years, cox$incidence)
+surv_obj <- Surv(df$persontime_years, 
+                     df$incident_tb)
 
-#Model
-model.cox <- coxph(cox.surv_obj ~ cohort + agegroup + sex + baselineCD4 + baselineRNA, data = cox)
+model <- coxph(cox.surv_obj ~ cohort + age_at_art_start + gender + cd4_group, 
+               data = df)
 
-#### results /plot ----
+#### results -------------------------------------------------------------------
 
-summary(model.cox)
+summary(model)
 
-plot_model(model.cox)
+plot_model(model)
 hr <- exp(coef(model.cox))
 ci <- exp(confint(model.cox))
 
 #plot hazard ratio
-plot <- plot_model(model.cox, 
+plot <- plot_model(model, 
                    vline.color = "red",
                    show.values = TRUE, 
                    value.offset = .3,
-                   group.terms = c(1, 2, 2, 2, 3, 4, 4, 5, 5)) +
+                   group.terms = c(1, 2, 3, 4, 4, 4)) +
   theme_bw()+
   labs(title = "Hazard Ratios for Factors Associated with TB Incidence",
        y = "Hazard ratios") + 

@@ -1,27 +1,17 @@
-#### Libraries -----------------------------------------------------------------
+#### libraries -----------------------------------------------------------------
 
-if(!require(pacman)) install.packages("pacman")
+library(tidyverse)
+library(epitools)
+library(fmsb)
+library(wesanderson)
+library(ggpubr)
+library(forcats)
+library(broom)
 
-pacman:: p_load(
-  dplyr, 
-  ggplot2, 
-  epitools,
-  sjPlot,
-  gridExtra,
-  ggpubr,
-  wesanderson,
-  forcats,
-  fmsb
-  )
-
-#### Data prep -----------------------------------------------------------------
-
-custom_breaks <- c(16, 24, 34, 44, 100)
+#### data preparation ----------------------------------------------------------
 
 df <- readRDS("data_clean/art_noTB.rds") %>% 
   mutate(incident_tb = as.numeric(as.character(incident_tb)),
-    agegroup = cut(age_at_art_start, breaks = custom_breaks, include.lowest = TRUE),
-         agegroup = as.factor(agegroup),
          persontime_years = case_when(
            incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
            incident_tb == 0 ~ last_persontime/360),
@@ -33,7 +23,7 @@ df <- readRDS("data_clean/art_noTB.rds") %>%
 
 levels(df$pre_2016) <- c("pre", "post")
   
-df_manual <- df %>% # calculating the incident rates per cohort
+df_manual <- df %>% 
   group_by(cohort) %>% 
   summarise(sum_incident_tb = sum(incident_tb == 1), 
             sum_person_years = sum(persontime_years)/1000) %>% 
@@ -48,16 +38,16 @@ b <-  df_manual %>% filter(cohort == "CH") %>% pull(sum_incident_tb)
 PT1 <- df_manual %>% filter(cohort == "RSA") %>% pull(sum_person_years)
 PT0 <- df_manual %>% filter(cohort == "CH") %>% pull(sum_person_years)
 irr <- rateratio(a, b, PT1, PT0, conf.level=0.95)
+
 df_irr <- tibble(
   est = irr[["estimate"]],
   lwr = irr[["conf.int"]][1],
   uppr = irr[["conf.int"]][2],
-  cohort = "RSA"
-)
+  cohort = "RSA")
 
 saveRDS(df_irr, "results/incidenceTB/irrCohort.rds")
 
-#### Incidence per baseline group ----------------------------------------------
+#### incidence rate per baseline group -----------------------------------------
 
 ### RNA ###
 
@@ -142,7 +132,7 @@ plot_both
 ggsave(plot = plot_both, file = "results/incidenceTB/bothGrouped.png", 
        width = 16, height = 11, units = "cm") 
 
-#### Stratifying by pre/post 2016 ----------------------------------------------
+#### incidence rate per pre/post 2016 ------------------------------------------
 
 ### RNA ###
 
@@ -201,15 +191,19 @@ ggsave(plot = plot_cd42k16,
 pois_ch <- glm(incident_tb ~ cd4_group, 
                offset=log(persontime_years), 
                family="poisson", 
-               data=df %>% filter(cohort == "CH",
+               data = df %>% filter(cohort == "CH",
                                   !is.na(cd4_group) & cd4_group != "NA"))
 
-tidy_pois_ch <- broom::tidy(pois_ch, conf.int = TRUE, exponentiate = TRUE) %>% 
+tidy_pois_ch <- tidy(pois_ch, conf.int = TRUE, exponentiate = TRUE) %>% 
   mutate(cohort = as.factor("CH"))
 
-pois_rsa <- glm(incident_tb ~ cd4_group, offset=log(persontime_years), family="poisson", data=df %>% filter(cohort == "RSA",
-                                                                                                           !is.na(cd4_group) & cd4_group != "NA"))
-tidy_pois_rsa <- broom::tidy(pois_rsa, conf.int = TRUE, exponentiate = TRUE) %>% 
+pois_rsa <- glm(incident_tb ~ cd4_group, offset=log(persontime_years), 
+                family="poisson", 
+                data = df %>% 
+                  filter(cohort == "RSA",
+                         !is.na(cd4_group) & cd4_group != "NA"))
+
+tidy_pois_rsa <- tidy(pois_rsa, conf.int = TRUE, exponentiate = TRUE) %>% 
   mutate(cohort = as.factor("RSA"))
 
 combined_data <- rbind(tidy_pois_rsa, tidy_pois_ch) %>% 
@@ -219,8 +213,11 @@ combined_data <- rbind(tidy_pois_rsa, tidy_pois_ch) %>%
                           TRUE ~ "100-349")) %>% 
   dplyr::select(term, estimate, conf.low, conf.high, cohort)
 
-
-reference <- tibble(term = rep("350+",2), estimate = rep(1,2), conf.low = NA, conf.high = NA, cohort = c("RSA", "CH"))
+reference <- tibble(term = rep("350+", 2), 
+                    estimate = rep(1,2), 
+                    conf.low = NA, 
+                    conf.high = NA, 
+                    cohort = c("RSA", "CH"))
 
 combined_data <- rbind(combined_data, reference)
 

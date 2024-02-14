@@ -1,33 +1,19 @@
-##### Libraries ----
+##### libraries ----------------------------------------------------------------
 
-if(!require(pacman)) install.packages("pacman")
+library(tidyverse)
+library(wesanderson)
+library(ggsurvfit)
+library(tidycmprsk)
+library(cmprsk)
 
-pacman:: p_load(
-  dplyr, # for data wrangling
-  lubridate, # for date handling
-  rlang, # for '!!' inside the functions
-  AER, # for dispersiontest
-  ggplot2, # for plotting
-  haven,
-  survival,
-  survminer,
-  gridExtra,
-  Epi,
-  cmprsk,
-  wesanderson,
-  ggsurvfit
-)
+##### data preparation ---------------------------------------------------------
 
-##### data import/preprocessing ------------------------------------------------
-
-kaplan <- readRDS("data_clean/art_noTB.rds")  %>% 
+df_surv <- readRDS("data_clean/art_noTB.rds")  %>% 
   mutate(incident_tb = as.numeric(as.character(incident_tb)),
-         persontime_years = case_when(
-           incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
-           incident_tb == 0 ~ last_persontime/360),
          persontime_days = case_when(
            incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")),
            incident_tb == 0 ~ last_persontime),
+         persontime_years = persontime_days / 360,
          persontime_death_days = case_when(
            !is.na(exitdate) ~ as.numeric(difftime(exitdate, art_start_date, units = "days")),
            is.na(exitdate) ~ last_persontime),
@@ -37,66 +23,17 @@ kaplan <- readRDS("data_clean/art_noTB.rds")  %>%
   mutate(event_type = as.factor(case_when(
     incident_tb == 1 ~ 1,
     !is.na(exitdate) ~ 2,
-    TRUE ~ 0 # Loss to follow-up isnt considered a competing risk
-  )))
+    TRUE ~ 0 ))) # Loss to fup is not considered a competing risk
 
-kaplan_rsa <- kaplan %>% 
-  filter(cohort == "RSA")
-
-tabyl(kaplan_rsa$event_type)
-
-kaplan_ch <- kaplan %>% 
-  filter(cohort == "CH")
-
-tabyl(kaplan_ch$event_type)
-
-#### Kaplan Meier model (excluding competing risk [death]) ---------------------
-
-p <- survfit2(Surv(persontime_days, incident_tb) ~ cohort, data = kaplan) |>
-  ggsurvfit(linewidth = 1) +
-  add_confidence_interval() +
-  add_quantile(y_value = 0.6, color = "gray50", linewidth = 0.75) +
-  theme_bw()+
-  theme(legend.position = "none") +
-  labs(x = "Days after ART start",
-       y = "TB-free survival") +
-  scale_x_continuous(expand = c(0,0))
-
-print(p)
-
-p_death <- survfit2(Surv(persontime_death_days, incident_tb) ~ cohort, data = kaplan) |>
-  ggsurvfit(linewidth = 1) +
-  add_confidence_interval() +
-  theme_bw()+
-  theme(legend.position = "none") +
-  labs(x = "Days after ART start",
-       y = "survival") +
-  scale_x_continuous(expand = c(0,0))
-
-print(p_death)
-
-########### Aalen-Johansen model (including competing risk [death]) ------------
+#### aalen-Johansen model [all-cause mortality as competing risk] --------------
 
 #' I use ggcuminc to plot the competing risk survival function, it is mentioned in the documention
 #' that both survfit2 (mstate) aswell as cuminc can be used to create the dataframe for plotting.
 
-library(tidycmprsk)
-
-# cuminc(Surv(persontime_years, event_type) ~ cohort, kaplan) %>% 
-#   ggcuminc(outcome = c("1")) +
-#   add_confidence_interval() +
-#   scale_ggsurvfit()+
-#   theme_classic() +
-#   theme(legend.position = "none") +
-#   labs(x = "Years after ART start",
-#        y = "Cumulative incidence of TB (%)") +
-#   coord_cartesian(xlim = c(0,5), ylim = c(0,0.05))+
-#   scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 10, integer = TRUE)) +  
-#   theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
-#   scale_color_manual(values = wes_palette("Moonrise2")) +
-#   scale_fill_manual(values = wes_palette("Moonrise2"))
-
-plot_aj <- survfit2(Surv(persontime_years, event_type, type = "mstate") ~ cohort, data = kaplan) |>
+plot_aj <- survfit2(Surv(persontime_years, 
+                         event_type, 
+                         type = "mstate") ~ cohort, 
+                    data = df_surv) %>% 
   ggcuminc(linewidth = 0.5, outcome = c("1")) +
   add_confidence_interval() +
   theme_classic() +
@@ -104,18 +41,27 @@ plot_aj <- survfit2(Surv(persontime_years, event_type, type = "mstate") ~ cohort
   labs(x = "Years after ART start",
        y = "Cumulative incidence of TB (%)") +
   coord_cartesian(xlim = c(0,5), ylim = c(0,0.05))+
-  scale_x_continuous(expand = c(0,0), breaks = function(limits) pretty(limits, n = 5, integer = TRUE)) +  
-  scale_y_continuous(expand = c(0,0), labels = function(y) paste0(y * 100)) +  
+  scale_x_continuous(expand = c(0,0), 
+                     breaks = function(limits) pretty(limits, n = 5, integer = TRUE)) +  
+  scale_y_continuous(expand = c(0,0), 
+                     labels = function(y) paste0(y * 100)) +  
   theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
   scale_fill_manual(values = wes_palette("Moonrise2"))
 
 plot_aj
 
-ggsave(plot = plot_aj, filename = "results/incidence/incidence_aj.png", 
+ggsave(plot = plot_aj, filename = "results/incidenceTB/aj.png", 
        width = 16, height = 11, units = "cm")
 
-## log-scaled ## 
+#### gray's test ---------------------------------------------------------------
+
+cif_by_group <- cmprsk::cuminc(ftime = df_surv$persontime_years, 
+                       fstatus = df_surv$event_type, 
+                       group = df_surv$cohort, 
+                       cencode = 0)
+
+cif_by_group
 
 # plot_aj_log <- survfit2(Surv(persontime_years, event_type, type = "mstate") ~ cohort, data = kaplan) |>
 #   ggcuminc(linewidth = 0.5) +

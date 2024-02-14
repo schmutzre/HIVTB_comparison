@@ -393,25 +393,47 @@ readRDS("../../results/incidenceTB/irrCohort.rds") %>% kable()
 
 ![Figure 4: Point-wise TB incidence rate estimate stratified by baseline CD4 Count and ART start date pre/post 2016.](images/2k16.png)
 
-## Survival analysis
+### Secondary Analysis: TB incidence
 
-![Figure 4: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange).](images/incidence_aj-02.png)
+#### Logistic regression [risk factors]
 
-![Figure 5: The cumulative occurence rates for time to first cd4-measurement **\> 350** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/rec_aj350-01.png)
+##### Complete record analysis Switzerland
 
-![Figure 6: The cumulative occurence rates for time to first cd4-measurement **\> 500** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/rec_aj500-01.png)
+![Figure 5](images/complete_ch.jpg)
 
-![Figure 7: The cumulative occurence rates for time to first rna-measurement **\< 400** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/sup_aj400-02.png)
+##### Imputed record analysis Switzerland
 
-![Figure 8: The cumulative occurence rates for time to first rna-measurement **\< 200** after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/sup_aj200-01.png)
+![Figure 6](images/imputed_ch.png)
+
+##### Complete record analysis South Africa
+
+![Figure 7](images/complete_rsa.jpg)
+
+##### Imputed record analysis Switzerland
+
+![Figure 8](images/imputed_rsa.png)
+
+#### Aalen-Johansen
+
+![Figure 9: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange).](images/aj.png)
+
+#### Fine-Gray model
 
 ![Figure 9: Kaplan-Meier curve comparing the survival probability after ART start between South Africa and Switzerland weighted by baseline CD4, Gender and Age at ART start.](images/kaplan_weighted.png)
 
-## CD4 count recovery (IWHOD figure)
+### Secondary Analysis: Immunological recovery
 
-![Figure 10: Fitted GAM model using cubic spline estimating the CD4 recovery after ART start.](images/cd4_pred-01.png)
+##### Complete record analysis
 
-![Figure 11: Fitted GAM model using cubic spline estimating the HIV VL after ART start.](images/rna_pred-01.png)
+![](images/cd4_predEff.png)
+
+##### Imputed record analysis
+
+### Secondary Analysis: Time to viral suppression
+
+![Figure 5: The cumulative occurence rates for time to first cd4-measurement \> 350 after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/recovery_350-01.png)
+
+![Figure 6: The cumulative occurence rates for time to first cd4-measurement \> 500 after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/recovery_500.png)
 
 ## Follow-up
 
