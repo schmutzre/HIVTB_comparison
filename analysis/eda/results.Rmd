@@ -1,0 +1,518 @@
+---
+title: "Results"
+author: "Remo Schmutz"
+date: "2023-12-05"
+output:
+   html_document: 
+    fig_caption: true
+    code_folding: hide
+    highlight: tango
+    theme: paper
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+library(table1)
+library(tidyverse)
+library(knitr)
+library(png)
+library(janitor)
+library(flextable)
+library(forcats)
+library(biostatUZH)
+```
+
+# Table 1
+
+```{r, include=FALSE}
+
+complete <-  readRDS("../../data_clean/art.rds") 
+ch <- readRDS("../../data_clean/ch/art_ch.rds")
+rsa <- readRDS("../../data_clean/rsa/art_rsa.rds")
+
+# Columns #
+
+complete <- complete %>%
+  mutate(presenting_tb = 
+           fct_recode(presenting_tb,
+                            "Not presenting with TB" = "0",
+                            "Presenting with TB" = "1"),
+         site_tb = case_when(presenting_tb == 0 ~ NA,
+                             TRUE ~ site_tb))
+
+# Age #
+
+label(complete$age_at_art_start) <- "Age at start of ART"
+
+# Sex #
+
+complete$gender <- factor(complete$gender, 
+         levels=c("Male","Female"))
+label(complete$gender) <- "Gender"
+
+# Site of TB #
+
+complete <- complete %>% 
+  mutate(site_tb = case_when(presenting_tb == "Not presenting with TB" ~ NA,
+                             TRUE ~ site_tb),
+         regimen_tb_group = case_when(
+           presenting_tb == "Not presenting with TB" ~ NA,
+           TRUE ~ regimen_tb_group))
+label(complete$site_tb) <- "Site of TB"
+
+# CD4 baseline #
+
+label(complete$cd4_baseline) <- "CD4 cell count at start of ART"
+
+# Viral load baseline #
+
+label(complete$rna_baseline) <- "HIV RNA viral load at start of ART"
+
+# WHO stage #
+
+complete <- complete %>% 
+  mutate(who_stage = case_when((presenting_tb == "Presenting with TB" & who_stage == 1) ~ "2/3",
+                                TRUE ~ who_stage))
+label(complete$who_stage) <- "WHO clinical stage"
+
+# HIV treatment regimens #
+
+complete$regimen <- factor(complete$regimen, 
+         levels=c("INSTI-based","NNRTI-based", "PI-based", "Other"))
+
+label(complete$regimen) <- "HIV treatment regimens"
+
+# TB treatment regimens #
+
+complete$regimen_tb_group <- as.character(complete$regimen_tb_group)
+
+tabyl(complete$regimen_tb_group)
+
+complete <- complete %>% 
+  mutate(regimen_tb_group_nres = case_when(resistance_tb_any %in% c(0,NA) ~ regimen_tb_group,
+         TRUE ~ NA))
+tabyl(complete$regimen_tb_group_nres)
+complete$regimen_tb_group_nres <- factor(complete$regimen_tb_group_nres, 
+         levels=c("Standard","Rifabutin based", "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone", "2HRZES 1HRZE 5HRE", "Others"))
+
+label(complete$regimen_tb_group_nres) <- "TB regimen amongst drug-susceptible patients"
+```
+
+```{r echo=FALSE, fig.align='center'}
+my.render.cont <- function(x) {
+    stats <- stats.default(x)
+    with(stats, {
+        mean_sd <- sprintf("%d (%d)", round(MEAN), round(SD))
+        median_iqr <- sprintf("%d [%d, %d]", round(MEDIAN), round(Q1), round(Q3))
+        min_max <- sprintf("[%d, %d]", round(MIN), round(MAX))
+        c("", "Mean (SD)"=mean_sd, "Median (IQR)"=median_iqr, "Min, Max"=min_max)
+    })
+}
+
+my.render.cat <- function(x) {
+    # Calculate the total number of non-missing values
+    non_missing_total <- sum(!is.na(x))
+    
+    # Use stats.default to compute frequencies and percentages
+    stats <- stats.default(x)
+    
+    # Use sapply to apply the function to each element of the stats list
+    c("", sapply(stats, function(y) {
+        # Calculate the percentage excluding missings
+        real_pct <- if (non_missing_total > 0) {
+            (y$FREQ / non_missing_total) * 100
+        } else {
+          NA  # Avoid division by zero if non_missing_total is zero
+        }
+        
+        # Prepare the string with both percentages: including and excluding missings
+        sprintf("%d (%0.0f%%; %0.0f%%)", y$FREQ, y$PCT, real_pct)
+    }))
+}
+
+
+table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group_nres | cohort + presenting_tb, data = complete,
+       overall = c(left = "All"),
+       topclass="Rtable1-zebra",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >2 months before ART start were excluded.",
+       render.continuous = my.render.cont,
+       render.categorical = my.render.cat)
+
+library(magrittr)
+
+tbl1 <- table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group_nres | cohort + presenting_tb, data = complete,
+               overall = c(left = "All"),
+       topclass="Rtable1-zebra",
+       render.continuous = my.render.cont,
+       render.categorical = my.render.cat)
+
+write.table (tbl1 , "my_table_1_file.csv", col.names = T, row.names=F, append= T, sep=',')
+```
+
+# Table 1b
+
+```{r}
+table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage + regimen| cohort, data = complete,
+       overall = c(left = "All"),
+        topclass="Rtable1-zebra",
+        caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >2 months before ART start were excluded.",
+        render.continuous = my.render.cont,
+        render.categorical = my.render.cat)
+```
+
+# Table (TB cases but within the studypopulation of Table 1)
+
+```{r}
+complete_tb <- complete %>% 
+  filter(!is.na(date_tb))
+
+table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage + regimen + outcome_tb + site_tb + presenting_tb + incident_tb + regimen_tb_group| cohort, data = complete_tb,
+       overall = c(left = "All"),
+        topclass="Rtable1-zebra",
+        caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022 and belonging to the groups presenting with tb and incident tb.",
+        render.continuous = my.render.cont,
+        render.categorical = my.render.cat)
+```
+
+
+### Top 5 most used ART treatments per cohort
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+### TOP 5 ART treatments
+
+# rsa <- rsa %>% 
+#   mutate(treatment = case_when(!is.na(treatment) ~ "Other",
+#                                TRUE ~ NA))
+
+# case_when(treatment %in% c("TDF + 3TC/FTC + EFV/NVP",
+#                                                 "TDF + 3TC/FTC + DTG",
+#                                                 "ART unspecified") ~ treatment,
+
+freq_ch <- tabyl(ch$treatment, show_na = FALSE)
+freq_rsa <- tabyl(rsa$treatment, show_na = FALSE)
+
+as.data.frame(freq_ch[order(-freq_ch $percent), ][1:5, ]) %>% 
+  mutate(percent = round(percent*100, 0))
+
+as.data.frame(freq_rsa[order(-freq_rsa $percent), ][1:10, ]) %>% 
+  mutate(percent = round(percent*100, 0))
+
+ch_pres <- ch %>% filter(presenting_tb ==1)
+ch_npres <- ch %>% filter(presenting_tb ==0)
+rsa_pres <- rsa %>% filter(presenting_tb ==1)
+rsa_npres <- rsa %>% filter(presenting_tb ==0)
+
+freq_table_presCH <- tabyl(ch_pres$treatment, show_na = FALSE)
+freq_table_presRSA <- tabyl(rsa_pres$treatment, show_na = FALSE)
+freq_table_npresCH <- tabyl(ch_npres$treatment, show_na = FALSE)
+freq_table_npresRSA <- tabyl(rsa_npres$treatment, show_na = FALSE)
+
+top_ch_pres <- as.data.frame(freq_table_presCH[order(-freq_table_presCH $percent), ][1:5, ]) %>% 
+  mutate(percent = round(percent*100, 0))
+
+top_ch_npres <- as.data.frame(freq_table_npresCH[order(-freq_table_npresCH $percent), ][1:5, ]) %>% 
+  mutate(percent = round(percent*100, 0))
+
+top_rsa_pres <- as.data.frame(freq_table_presRSA[order(-freq_table_presRSA $percent), ][1:5, ]) %>% 
+  mutate(percent = round(percent*100, 0))
+
+top_rsa_npres <- as.data.frame(freq_table_npresRSA[order(-freq_table_npresRSA $percent), ][1:5, ]) %>% 
+  mutate(percent = round(percent*100, 0))
+
+#top_rsa <- as.data.frame(freq_table2[order(-freq_table2$percent), ][1:5, ]) %>% 
+ # mutate(percent = round(percent*100, 0))
+
+write.table(top_ch_pres, file = "top_ch_presenting.csv", col.names = T, row.names=F, append= T, sep=',')
+write.table(top_ch_npres, file = "top_ch_not_presenting.csv", col.names = T, row.names=F, append= T, sep=',')
+write.table(top_rsa_pres, file = "top_rsa_presenting.csv", col.names = T, row.names=F, append= T, sep=',')
+write.table(top_rsa_npres, file = "top_rsa_not_presenting.csv", col.names = T, row.names=F, append= T, sep=',')
+# kable(top_ch)
+# kable(top_rsa)
+```
+
+# Table 2
+
+```{r, include=FALSE}
+tb <- readRDS("../../data_clean/tb.rds")
+tb_ch <- readRDS("../../data_clean/ch/tb_ch.rds")
+tb_rsa <- readRDS("../../data_clean/rsa/tb_rsa.rds")
+# Age #
+
+custom_breaks <- c(16, 24, 34, 44, 100)
+
+tb <- tb %>% 
+  mutate(age_tb = year(date_tb) - year(born)) %>%  
+  mutate(agegroups = cut(age_tb, breaks = custom_breaks, include.lowest = TRUE)) %>% 
+  mutate(agegroups = as.factor(agegroups))
+
+tb$agegroups <- 
+  factor(tb$agegroups, 
+         levels=c("[16,24]","(24,34]", "(34,44]", "(44,100]"),
+         labels=c("16-24","25-34", "35-44", "45+"))
+
+label(tb$agegroups) <- "Age when diagnosed with TB"
+
+# Sex #
+
+tb$sex <- 
+  factor(tb$sex, 
+         levels=c("Male","Female"))
+label(tb$sex) <- "Sex"
+
+# Birth country #
+tabyl(tb$region)
+tb$region <- 
+  factor(tb$region, 
+         levels=c("Europe/Northern America","Africa","Asia/Oceania","South/Latin America" , "Sub-Saharan Africa"))
+label(tb$region) <- "Birth country"
+
+# TB regimen #
+
+tb <- tb %>% 
+  mutate(regimen_tb_group_nres = case_when(resistance_tb_any %in% c(0,NA) ~ regimen_tb_group,
+         TRUE ~ NA))
+
+tb$regimen_tb_group_nres <- factor(tb$regimen_tb_group_nres, 
+         levels=c("Standard","Rifabutin based", "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone", "2HRZES 1HRZE 5HRE",  "Others"))
+
+label(tb$regimen_tb_group_nres) <- "TB regimen amongst drug-susceptible patients"
+
+# Site of TB #
+
+label(tb$site_tb) <- "Site of TB"
+
+# CD4 cell count at TB diagnosis #
+
+label(tb$tb_diag_cd4) <- "CD4 cell count at TB diagnosis"
+
+# Viral load at TB diagnosis #
+
+label(tb$tb_diag_rna) <- "HIV RNA viral load at TB diagnosis"
+
+# Outcome TB #
+label(tb$outcome_tb) <- "TB outcome"
+```
+
+```{r echo = FALSE}
+table1(~ agegroups + sex + region + site_tb + regimen_tb_group_nres + tb_diag_cd4 + tb_diag_rna + outcome_tb| cohort, data = tb,
+       overall = c(left = "All"),
+       topclass="Rtable1-zebra",
+       caption = "HIV-positive patients with TB diagnosed between 2010 and 2022.",
+       render.continuous = my.render.cont,
+       render.categorical = my.render.cat)
+```
+
+# Table 3
+
+```{r, include=FALSE}
+
+noTB <- readRDS("../../data_clean/art_noTB.rds")
+
+# Columns #
+
+noTB <- noTB %>%
+  mutate(pre_2016 = 
+           fct_recode(pre_2016,
+                            "ART start after 2016" = "0",
+                            "ART start before 2016" = "1"))
+
+# Age #
+
+label(noTB$age_at_art_start) <- "Age at start of ART"
+
+# Sex #
+
+noTB$gender <- factor(noTB$gender, 
+         levels=c("Male","Female"))
+label(noTB$gender) <- "Sex"
+
+# Site of TB #
+
+label(noTB$site_tb) <- "Site of TB"
+
+# CD4 baseline #
+
+label(noTB$cd4_baseline) <- "CD4 cell count at start of ART"
+
+# Viral load baseline #
+
+label(noTB$rna_baseline) <- "HIV RNA viral load at start of ART"
+
+# WHO stage #
+
+label(noTB$who_stage) <- "WHO clinical stage"
+
+# HIV treatment regimens #
+
+label(noTB$regimen) <- "HIV treatment regimens"
+
+# TB treatment regimens #
+
+noTB$regimen_tb_group <- as.character(noTB$regimen_tb_group)
+
+tabyl(noTB$regimen_tb_group)
+
+label(noTB$regimen_tb_group) <- "TB regimen"
+
+# TB incidence #
+
+noTB$incident_tb <- as.factor(noTB$incident_tb)
+
+tabyl(noTB$incident_tb)
+
+label(noTB$incident_tb) <- "TB incidence"
+```
+
+```{r}
+table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage + incident_tb| cohort + pre_2016, data = noTB,
+       overall = c(left = "All"),
+       topclass="Rtable1-zebra",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) not presenting with TB at ART start and with no history of TB. Comparing patients starting ART before 2016 to patients starting ART after 2016.",
+       render.continuous = my.render.cont,
+       render.categorical = my.render.cat)
+```
+
+## TB treatment for non-resistant patients
+
+```{r}
+tb_nres <- tb %>%
+  filter(resistance_tb_any %in% c(0, NA)) %>%
+  mutate(regimen_tb_group = fct_infreq(regimen_tb_group))
+  
+tbl_reg <- table1(~regimen_tb_group | cohort, data = tb_nres,
+                  render.categorical = my.render.cat,
+                  overall = c(left = "All"),
+                  caption = "TB treatments for all TB patients between 2010-2022 independent of ART start")
+
+write.table (tbl_reg , "tblTB.csv", col.names = T, row.names=F, append= T, sep=',')
+```
+
+## ART regimen
+
+```{r}
+
+```
+
+
+## Median follow-up time
+
+### RSA
+
+```{r}
+rsa %>% 
+  dplyr::select(last_persontime) %>% 
+  summarise(median = median(last_persontime, na.rm = T),
+            l_q = quantile(last_persontime, 0.25, na.rm = T),
+            u_q = quantile(last_persontime, 0.75, na.rm = T)) %>% 
+  kable()
+```
+
+### CH
+
+```{r}
+ch %>% 
+  dplyr::select(last_persontime) %>% 
+  summarise(median = median(last_persontime, na.rm = T),
+            l_q = quantile(last_persontime, 0.25, na.rm = T),
+            u_q = quantile(last_persontime, 0.75, na.rm = T)) %>% 
+  kable()
+```
+
+## All-cause mortality rate
+
+```{r}
+complete %>%
+  mutate(exit = case_when(!is.na(exitdate) ~ 1, TRUE ~ 0)) %>%
+  group_by(cohort, presenting_tb) %>%
+  summarise(n = n(),  # Total count in each group
+            exits = sum(exit),  # Count of exits in each group
+            wilson_ci = list(wilson(exits, n)), .groups = 'drop') %>% 
+  unnest_wider(wilson_ci) %>%  # Convert the list to separate columns
+  mutate(
+    prop = round(prop * 100, 2),  # Convert to percentage
+    lower = round(lower * 100, 2),       # Convert to percentage
+    upper = round(upper * 100 ,2)        # Convert to percentage
+  ) %>% 
+  kable()
+```
+
+# Figures
+
+### Primary Analysis: TB incidence
+
+```{r}
+readRDS("../../results/incidenceTB/irrCohort.rds") %>% kable()
+```
+
+-   IRR comparing the incidence rate of TB in RSA relative to Switzerland.
+
+![Figure 1: Point-wise TB incidence rate estimate stratified by baseline viral load.](images/rnaGrouped.png)
+
+![Figure 2: Point-wise TB incidence rate estimate stratified by baseline CD4 Count.](images/cd4Grouped.png)
+
+![Figure 3: Incident Rate Ratios (IRRs) of Tuberculosis Incidence relative to the Reference Group (CD4 Count ≥ 350 at ART Initiation), compared separately for each cohort.](images/irr-03.png)
+
+![Figure 4: Point-wise TB incidence rate estimate stratified by baseline CD4 Count and ART start date pre/post 2016.](images/2k16.png)
+
+### Secondary Analysis: TB incidence
+
+#### Logistic regression for binary outcome Incidence TB (0 = no, 1 = yes) [risk factors]
+
+##### Complete record analysis Switzerland
+
+![Figure 5a: Odds-ratios of Incident TBcase for a one-unit change (continuous) or compared to the reference category (categorical). Reference categories: sex: Male; who: 1/2; regio: Europe/North America.](images/complete_ch.jpg)
+
+##### Imputed record analysis Switzerland
+
+![Figure 5b: Odds-ratios of Incident TB case for a one-unit change (continuous) or compared to the reference category (categorical). Reference categories: sex: Male; who: 1/2; regio: Europe/North America.](images/imputed_ch.png)
+
+##### Complete record analysis South Africa
+
+![Figure 6a: Odds-ratios of Incident case for a one-unit change (continuous) or compared to the reference category (categorical). Reference categories: sex: Male.](images/complete_rsa.jpg)
+
+##### Imputed record analysis South Africa
+
+![Figure 6b: Odds-ratios of Incident case for a one-unit change (continuous) or compared to the reference category (categorical). Reference categories: sex: Male.](images/imputed_rsa.png)
+
+#### Aalen-Johansen [Time-to-event]
+
+![Figure 7: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange).](images/aj.png)
+
+#### Fine-Gray model [Time-to-event associated factors]
+
+![Figure 8: Fine-Gray Competing Risks Regression Model Results: Hazard Ratios and 95% Confidence Intervals for Factors Associated with Incident TB. If we would like to include WHO stage and region as covatriates we would need to fit separate models for the cohorts. ](images/cox.png)
+
+### Secondary Analysis: Immunological recovery
+
+-   In the end, I kept the interaction because else, the confidence interval was absurdly wide for CH with prevalent TB, even when considering a less conservative way of calculating the CI.
+
+##### Complete record analysis
+
+![Figure 9a: Generalized additive mixed model (GAMM) to model the recovery of cd4 cell count after starting ART using the complete raw dataset.](images/trend_cd4.png)
+
+##### Imputed record analysis
+
+![Figure 9b: Generalized additive mixed model (GAMM) to model the recovery of cd4 cell count after starting ART using the imputed dataset.](images/trend_cd4_imp.png)
+
+### Secondary Analysis: Time to viral suppression
+
+![Figure 10: Odds-ratios of any cd4 count \> 350 (binary; 0: never happens, 1: happens at time t) for a one-unit change (continuous) or compared to the reference category (categorical). Reference categories: gender: Male; who: 1/2; regio: Europe/North America.](images/complete_ch-01.png)
+
+![Figure 11: Odds-ratios of any cd4 count \> 350 (binary; 0: never happens, 1: happens at time t) for a one-unit change (continuous) or compared to the reference category (categorical). Reference categories: gender: Male; who: 1/2; regio: Europe/North America.](images/complete_rsa-01.png)
+
+![Figure 12: The cumulative occurrence rates for time to first cd4-measurement \> 350 after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/recovery_350-01.png)
+
+![Figure 13: The cumulative occurrence rates for time to first cd4-measurement \> 500 after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/recovery_500.png)
+
+![Figure 14: Fine-Gray Competing Risks Regression Model Results: Hazard Ratios and 95% Confidence Intervals for factors Associated with occurrence of CD4 count \> 350. If we would like to include WHO stage and region as covatriates we would need to fit separate models for the cohorts. ](images/fine_gray.png)
+
+### Follow-up
+
+![Figure 14: Proportion of patients who died within specified intervals relative to the number of patients present at the start of each interval in RSA. Wilson-type confidence intervals are included.](images/exit_prop-07.png)
+
+![Figure 15: Proportion of cumulative numbers over time.](images/fup_prop-02.png)
+
+![Figure 16: Kaplan-Meier curve comparing the survival probability after ART start between South Africa and Switzerland weighted by baseline CD4, Gender and Age at ART start.](images/kaplan_weighted.png){alt="Figure 9: Kaplan-Meier curve comparing the survival probability after ART start between South Africa and Switzerland weighted by baseline CD4, Gender and Age at ART start."}

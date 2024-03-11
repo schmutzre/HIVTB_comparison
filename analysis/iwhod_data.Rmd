@@ -1,7 +1,6 @@
 ---
-title: "Data Overview"
-author: "Remo Schmutz"
-date: "2023-12-05"
+title: "Data summary for Comparing the public health epidemiology of HIV and tuberculosis between a lower and a high-income country"
+date: "2023-11-06"
 output:
   html_document: 
     fig_caption: true
@@ -29,13 +28,14 @@ library(biostatUZH)
 
 ```{r, include=FALSE}
 
-complete <-  readRDS("../../data_clean/art.rds")
-ch <- readRDS("../../data_clean/ch/art_ch.rds")
-rsa <- readRDS("../../data_clean/rsa/art_rsa.rds")
+complete <-  readRDS("../data_clean/art.rds")
+ch <- readRDS("../data_clean/ch/art_ch.rds")
+rsa <- readRDS("../data_clean/rsa/art_rsa.rds")
 
 # Columns #
 
 complete <- complete %>%
+  mutate(presenting_tb = factor(presenting_tb, levels = c(0, 1))) %>%
   mutate(presenting_tb = 
            fct_recode(presenting_tb,
                             "Not presenting with TB" = "0",
@@ -104,11 +104,11 @@ tabyl(complete$regimen_tb_group)
 complete <- complete %>% 
   mutate(regimen_tb_group_nres = case_when(resistance_tb_any %in% c(0,NA) ~ regimen_tb_group,
          TRUE ~ NA))
-tabyl(complete$regimen_tb_group_nres)
-complete$regimen_tb_group_nres <- factor(complete$regimen_tb_group_nres, 
-         levels=c("Standard","Rifabutin based", "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone", "2HRZES 1HRZE 5HRE", "Others"))
 
-label(complete$regimen_tb_group_nres) <- "TB regimen amongst drug-susceptible patients"
+complete$regimen_tb_group_nres <- factor(complete$regimen_tb_group_nres, 
+         levels=c("Standard","Rifabutin based", "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone", "Others"))
+
+label(complete$regimen_tb_group_nres) <- "TB regimen amongst drug-receptive patients"
 
 ```
 
@@ -148,25 +148,12 @@ my.render.cat <- function(x) {
 table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group_nres | cohort + presenting_tb, data = complete,
        overall = c(left = "All"),
        topclass="Rtable1-zebra",
-       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >2 months before ART start were excluded.",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. Patients with a TB diagnosis >12 months before ART start were excluded. We compared patients with prevalent TB (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB.",
        render.continuous = my.render.cont,
        render.categorical = my.render.cat)
 ```
 
-# Table 1b
-
-```{r}
-table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage + regimen| cohort, data = complete,
-       overall = c(left = "All"),
-        topclass="Rtable1-zebra",
-        caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >2 months before ART start were excluded.",
-        render.continuous = my.render.cont,
-        render.categorical = my.render.cat)
-```
-
-### Top 5 most used ART treatments per cohort
-
-```{r echo=FALSE, message=FALSE, warning=FALSE}
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=F}
 ### TOP 5 ART treatments
 rsa <- rsa %>% 
   mutate(treatment = case_when(treatment %in% c("TDF + 3TC/FTC + EFV/NVP",
@@ -191,9 +178,9 @@ kable(top_rsa)
 # Table 2
 
 ```{r, include=FALSE}
-tb <- readRDS("../../data_clean/tb.rds")
-tb_ch <- readRDS("../../data_clean/ch/tb_ch.rds")
-tb_rsa <- readRDS("../../data_clean/rsa/tb_rsa.rds")
+tb <- readRDS("../data_clean/tb.rds")
+tb_ch <- readRDS("../data_clean/ch/tb_ch.rds")
+tb_rsa <- readRDS("../data_clean/rsa/tb_rsa.rds")
 # Age #
 
 custom_breaks <- c(16, 24, 34, 44, 100)
@@ -218,10 +205,10 @@ tb$sex <-
 label(tb$sex) <- "Sex"
 
 # Birth country #
-tabyl(tb$region)
+
 tb$region <- 
   factor(tb$region, 
-         levels=c("Europe/Northern America","Africa","Asia/Oceania","South/Latin America" , "Sub-Saharan Africa"))
+         levels=c("Sub-Saharan Africa","Europe","North Africa" , "North America", "South/Latin America", "Oceania", "Asia"))
 label(tb$region) <- "Birth country"
 
 # TB regimen #
@@ -233,7 +220,7 @@ tb <- tb %>%
 tb$regimen_tb_group_nres <- factor(tb$regimen_tb_group_nres, 
          levels=c("Standard","Rifabutin based", "HRZE (Rif, pyraz, ison, ethamb) plus at least one quinolone", "2HRZES 1HRZE 5HRE",  "Others"))
 
-label(tb$regimen_tb_group_nres) <- "TB regimen amongst drug-susceptible patients"
+label(tb$regimen_tb_group_nres) <- "TB regimen amongst drug-receptive patients"
 
 # Site of TB #
 
@@ -248,23 +235,24 @@ label(tb$tb_diag_cd4) <- "CD4 cell count at TB diagnosis"
 label(tb$tb_diag_rna) <- "HIV RNA viral load at TB diagnosis"
 
 # Outcome TB #
+
 label(tb$outcome_tb) <- "TB outcome"
+
 ```
 
 ```{r echo = FALSE}
 table1(~ agegroups + sex + region + site_tb + regimen_tb_group_nres + tb_diag_cd4 + tb_diag_rna + outcome_tb| cohort, data = tb,
        overall = c(left = "All"),
        topclass="Rtable1-zebra",
-       caption = "HIV-positive patients with TB diagnosed between 2010 and 2022.",
+       caption = "HIV-positive patients with TB diagnosed between 2010 and 2022 regardless of ART start.",
        render.continuous = my.render.cont,
        render.categorical = my.render.cat)
 ```
 
 # Table 3
-
 ```{r, include=FALSE}
 
-noTB <- readRDS("../../data_clean/art_noTB.rds")
+noTB <- readRDS("../data_clean/art_noTB.rds")
 
 # Columns #
 
@@ -321,6 +309,8 @@ noTB$regimen_tb_group <- as.character(noTB$regimen_tb_group)
 
 tabyl(noTB$regimen_tb_group)
 
+
+
 label(complete$regimen_tb_group) <- "TB regimen"
 ```
 
@@ -328,115 +318,7 @@ label(complete$regimen_tb_group) <- "TB regimen"
 table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage | cohort + incident_tb, data = noTB,
        overall = c(left = "All"),
        topclass="Rtable1-zebra",
-       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022 not presenting with TB at ART start and with no history of TB. Comparing patients with any incident TB case after ART start, with patients without indicent TB after ART start.",
+       caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022 not presenting with TB at ART start. Comparing patients with any incident TB case after ART start, with patients without indicent TB after ART start.",
        render.continuous = my.render.cont,
        render.categorical = my.render.cat)
 ```
-
-## Median follow-up time
-
-### RSA
-
-```{r}
-rsa %>% 
-  dplyr::select(last_persontime) %>% 
-  summarise(median = median(last_persontime, na.rm = T),
-            l_q = quantile(last_persontime, 0.25, na.rm = T),
-            u_q = quantile(last_persontime, 0.75, na.rm = T)) %>% 
-  kable()
-```
-
-### CH
-
-```{r}
-ch %>% 
-  dplyr::select(last_persontime) %>% 
-  summarise(median = median(last_persontime, na.rm = T),
-            l_q = quantile(last_persontime, 0.25, na.rm = T),
-            u_q = quantile(last_persontime, 0.75, na.rm = T)) %>% 
-  kable()
-```
-
-## All-cause mortality rate
-
-```{r}
-complete %>%
-  mutate(exit = case_when(!is.na(exitdate) ~ 1, TRUE ~ 0)) %>%
-  group_by(cohort, presenting_tb) %>%
-  summarise(n = n(),  # Total count in each group
-            exits = sum(exit),  # Count of exits in each group
-            wilson_ci = list(wilson(exits, n)), .groups = 'drop') %>% 
-  unnest_wider(wilson_ci) %>%  # Convert the list to separate columns
-  mutate(
-    prop = round(prop * 100, 2),  # Convert to percentage
-    lower = round(lower * 100, 2),       # Convert to percentage
-    upper = round(upper * 100 ,2)        # Convert to percentage
-  ) %>% 
-  kable()
-```
-
-# Figures
-
-### Primary Analysis: TB incidence
-
-```{r}
-readRDS("../../results/incidenceTB/irrCohort.rds") %>% kable()
-```
-
--   IRR comparing the incidence rate of TB in RSA relative to Switzerland.
-
-![Figure 1: Point-wise TB incidence rate estimate stratified by baseline viral load.](images/rnaGrouped.png)
-
-![Figure 2: Point-wise TB incidence rate estimate stratified by baseline CD4 Count.](images/cd4Grouped.png)
-
-![Figure 3: Incident Rate Ratios (IRRs) of Tuberculosis Incidence relative to the Reference Group (CD4 Count ≥ 350 at ART Initiation), compared separately for each cohort.](images/irr-03.png)
-
-![Figure 4: Point-wise TB incidence rate estimate stratified by baseline CD4 Count and ART start date pre/post 2016.](images/2k16.png)
-
-### Secondary Analysis: TB incidence
-
-#### Logistic regression [risk factors]
-
-##### Complete record analysis Switzerland
-
-![Figure 5](images/complete_ch.jpg)
-
-##### Imputed record analysis Switzerland
-
-![Figure 6](images/imputed_ch.png)
-
-##### Complete record analysis South Africa
-
-![Figure 7](images/complete_rsa.jpg)
-
-##### Imputed record analysis Switzerland
-
-![Figure 8](images/imputed_rsa.png)
-
-#### Aalen-Johansen
-
-![Figure 9: The cumulative incidence rates for time to first tuberculosis incidence after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange).](images/aj.png)
-
-#### Fine-Gray model
-
-![Figure 9: Kaplan-Meier curve comparing the survival probability after ART start between South Africa and Switzerland weighted by baseline CD4, Gender and Age at ART start.](images/kaplan_weighted.png)
-
-### Secondary Analysis: Immunological recovery
-
-##### Complete record analysis
-
-![](images/cd4_predEff.png)
-
-##### Imputed record analysis
-
-### Secondary Analysis: Time to viral suppression
-
-![Figure 5: The cumulative occurence rates for time to first cd4-measurement \> 350 after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/recovery_350-01.png)
-
-![Figure 6: The cumulative occurence rates for time to first cd4-measurement \> 500 after ART initiation were calculated using Aalen-Johansen method, adjusting for all-cause death as a competing risk. Stratified by cohort, Khayelitsha (green) and SHCS (orange) and presenting TB at ART start (dashed), and non presenting TB at ART start (solid).](images/recovery_500.png)
-
-## Follow-up
-
-![Figure 12: Proportion of patients who died within specified intervals relative to the number of patients present at the start of each interval in RSA. Wilson-type confidence intervals are included.](images/exit_prop-07.png)
-
-![Figure 13: Proportion of cumulative numbers over time.](images/fup_prop-02.png)

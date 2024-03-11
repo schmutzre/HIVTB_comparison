@@ -27,7 +27,8 @@ library(gamm4)
 cd4CH <- readRDS("../../data_clean/ch/cd4_ch.rds") %>% 
   mutate(id = as.factor(id),
          cohort = as.factor("CH"),
-         cd4_trans = sqrt(cd4)) %>% 
+         cd4_trans = sqrt(cd4),
+         time_trans = time_diff + 60) %>% 
   filter(time_diff >= -60 & time_diff < 360) %>% 
   dplyr::select(-cd4, -art_start_date, -disease_tb, -date_tb, -timepoint,
                 -pre_2016)
@@ -35,7 +36,8 @@ cd4CH <- readRDS("../../data_clean/ch/cd4_ch.rds") %>%
 cd4RSA <- readRDS("../../data_clean/rsa/cd4_rsa.rds") %>% 
   mutate(id = as.factor(id),
          cohort = as.factor("RSA"),
-         cd4_trans = sqrt(cd4)) %>% 
+         cd4_trans = sqrt(cd4),
+         time_trans = time_diff + 60) %>% 
   filter(time_diff >= -60 & time_diff < 360)  %>% 
   dplyr::select(-cd4, -disease_tb, -date_tb, -timepoint,
                 -pre_2016)
@@ -97,10 +99,10 @@ intervisit_Md <- function(data) {
   
 }
 
-fill_values_for_id <- function(patient_data, global_grid) {
+fill_values_for_id <- function(patient_data, global_grid, max_value = 420, md) {
   
   # Exclude measurement variables 'time_diff' and 'cd4_value' from unique value extraction
-  measurement_vars <- c("id", "time_diff", "cd4_trans", "date_cd4", "cohort")
+  measurement_vars <- c("id","time_diff", "cd4_trans", "date_cd4", "cohort")
   unique_val_columns <- setdiff(names(patient_data), measurement_vars)
 
   # Dynamically create a tibble of unique values for each non-measurement column
@@ -108,10 +110,16 @@ fill_values_for_id <- function(patient_data, global_grid) {
     select(all_of(unique_val_columns)) %>%
     summarise(across(everything(), unique))
 
-  # Assuming md_intvstCH is defined elsewhere in your code
   results <- map_df(global_grid, function(grid_day) {
+    # If it's the last grid point, use max_value as the upper limit
+    upper_limit <- if (grid_day == max(global_grid)) {
+      max_value
+    } else {
+      grid_day + md
+    }
+
     interval_data <- patient_data %>%
-      filter(time_diff >= grid_day & time_diff < grid_day + md_intvstCH)
+      filter(time_diff >= grid_day & time_diff < upper_limit)
 
     if (nrow(interval_data) > 0) {
       selected_measurement <- sample_n(interval_data, 1)
@@ -122,7 +130,7 @@ fill_values_for_id <- function(patient_data, global_grid) {
   })
 
   # Join the unique values with the results
-  results <- left_join(results, unique_vals, by = character())
+  results <- cross_join(results, unique_vals)
 
   return(results)
 }
@@ -134,11 +142,11 @@ fill_values_for_id <- function(patient_data, global_grid) {
 md_intvstCH <- intervisit_Md(cd4CH) # 82 days
 
 # Create a global grid from 0 to 420 days
-gridCH <- seq(from = -60, to = 360, by = md_intvstCH)
+gridCH <- seq(from = -60, to = 420 , by = md_intvstCH)
 
 gridCH_filled <- cd4CH %>%
   group_by(id) %>%
-  group_modify(~fill_values_for_id(., gridCH)) %>%
+  group_modify(~fill_values_for_id(., gridCH, md = md_intvstCH)) %>%
   ungroup() %>% 
   mutate(time_diff_tr = time_diff + 60) 
 
@@ -166,29 +174,8 @@ imp.list_CH <- imputationList(split(class.imputed_CH,
 ### South Africa
 
 ```{r cache=TRUE, echo=FALSE}
-md_intvstRSA <- intervisit_Md(lab_rawRSA) 
-
-result <- lab_rawRSA %>%
-    group_by(id) %>% 
-    arrange(id, date_cd4) %>% 
-    mutate(diff = date_cd4 - lag(date_cd4)) %>% 
-    filter(!is.na(diff)) %>% 
-    ungroup() %>% 
-    summarise(median_diff = median(diff, na.rm = TRUE)) %>% 
-    as.numeric()
-
 md_intvstRSA <- intervisit_Md(cd4RSA) 
 
-check <- cd4RSA %>%
-    group_by(id) %>% 
-    arrange(id, date_cd4) %>% 
-    mutate(diff = date_cd4 - lag(date_cd4)) 
-    filter(!is.na(diff)) %>% 
-    ungroup() %>%
-    summarise(median_diff = median(diff, na.rm = TRUE)) %>% 
-    as.numeric()
-
-md_intvstRSA
 # Create a global grid
 gridRSA <- seq(from = -60, to = 420, by = md_intvstRSA)
 

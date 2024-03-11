@@ -8,6 +8,7 @@ library(mice)
 #### data preparation ---------------------------------------------------------
 
 data <- readRDS("data_clean/art_noTB.rds")
+custom_breaks <- c(16, 34, 44, 100)
 
 df <- data %>% 
   rename("sex" = gender, 
@@ -20,8 +21,10 @@ df <- data %>%
   mutate(bcd4_tr = sqrt(bcd4),
          brna_tr = log10(brna + 1),
          regimen = as.factor(regimen),
-         regio = relevel(regio, ref = "Europe/Northern America")) %>% 
-  dplyr::select(sex, age, regio, bcd4_tr, brna_tr, who, regimen, incident_tb, cohort)
+         regio = relevel(regio, ref = "Europe/Northern America"),
+         agegroup = cut(age, breaks = custom_breaks, include.lowest = TRUE),
+         agegroup = as.factor(agegroup)) %>% 
+  dplyr::select(sex, age, agegroup, regio, bcd4_tr, brna_tr, who, regimen, incident_tb, cohort)
 
 df_ch <- df %>% filter(cohort == "CH") %>%
   dplyr::select(-cohort) 
@@ -36,7 +39,7 @@ df_rsa <- df %>% filter(cohort == "RSA") %>%
 
 ### CH ###
 
-m1_ch <- glm(incident_tb ~ sex + age + who + regio +  bcd4_tr + brna_tr, 
+m1_ch <- glm(incident_tb ~ sex + agegroup + who + regio +  bcd4_tr + brna_tr, 
                  family = "binomial", 
                  data = df_ch)
 
@@ -44,7 +47,7 @@ summ(m1_ch, exp = T)
 
 ### RSA ###
 
-m1_rsa <- glm(incident_tb ~ sex + age + bcd4_tr, 
+m1_rsa <- glm(incident_tb ~ sex + agegroup + bcd4_tr, 
                   family = "binomial", 
                   data = df_rsa)
 
@@ -99,7 +102,7 @@ syst_miss(data.to.impute_ch, return = "md")
 
 miss.mod_ch <- glm(incomplete ~ 
                      sex +
-                     age + 
+                     agegroup + 
                      regio + 
                      bcd4_tr + 
                      brna_tr + 
@@ -122,7 +125,7 @@ syst_miss(data.to.impute_rsa, return = "md")
 
 miss.mod_rsa <- glm(incomplete ~ 
                       sex +
-                      age + 
+                      agegroup + 
                       bcd4_tr +
                       incident_tb +
                       #regimen + # does not converge when i include it
@@ -147,7 +150,7 @@ K <- 20 # number of imputed datasets
 
 pmat_ch <- matrix(
   c(0,1,1,1,1,1,1,0, # sex
-    1,0,1,1,1,1,1,0, # age
+    1,0,1,1,1,1,1,0, # agegroup
     1,1,0,1,1,1,1,0, # regio
     1,1,1,0,1,1,1,0, # bcd4_tr
     1,1,1,1,0,1,1,0, # brna_tr
@@ -190,7 +193,7 @@ plot(ch.imp)
 
 pmat_rsa <- matrix(
   c(0,1,1,1,1, # sex
-    1,0,1,1,1, # age
+    1,0,1,1,1, # agegroup
     1,1,0,1,1, # bcd4_tr
     1,1,1,0,1, # regimen
     1,1,1,1,0), # incident_tb
@@ -209,7 +212,7 @@ post_rsa["bcd4_tr"] <- "imp[[j]][, i] <- squeeze(imp[[j]][, i], c(0, 50))"
 rsa.imp <- mice(data = data.to.impute_rsa,
                 m = K,
                 method = c("", #sex
-                           "", #age
+                           "", #agegroup
                            "norm",  # bcd4_tr
                            "polyreg", #regimen
                            ""), #incident_tb
@@ -228,7 +231,7 @@ summary(complete(rsa.imp, 1)) # imputed index 1:K
 
 fit_ch_imp <- with(data = ch.imp, 
                    exp = glm(incident_tb ~ 
-                               sex + age + who + regio + bcd4_tr + brna_tr,
+                               sex + agegroup + who + regio + bcd4_tr + brna_tr,
                              family = "binomial"))
 
 fit_ch_imp |>
@@ -240,7 +243,7 @@ fit_ch_imp |>
 ### RSA ###
 
 fit_rsa_imp <- with(data = rsa.imp,
-                    exp = glm(incident_tb ~ sex + age + bcd4_tr, 
+                    exp = glm(incident_tb ~ sex + agegroup + bcd4_tr, 
                               family="binomial"))
 
 fit_rsa_imp |>

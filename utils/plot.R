@@ -15,7 +15,7 @@ pred_trend <- function(model, data, N = 10000) {
   Vb <- vcov(model$gam)
   
   # Generate new data for predictions
-  pred_data <- with(data, expand.grid(time_diff = seq(min(time_diff), max(time_diff), length = 200),
+  pred_data <- with(data, expand.grid(time_trans = seq(min(time_trans), max(time_trans), length = 200),
                                      cohort = levels(cohort),
                                      presenting_tb = levels(presenting_tb))) %>% 
     mutate(interaction_term = interaction(cohort, presenting_tb))
@@ -44,7 +44,9 @@ pred_trend <- function(model, data, N = 10000) {
                     lwrS = fit_org - (crit * se.fit_org)) %>% 
     mutate(presenting_tb = case_when(presenting_tb == 0 ~ "Without prevalent TB",
                                      TRUE ~ "With prevalent TB"),
-           cohort = fct_relevel(cohort, "RSA"))
+           cohort = fct_relevel(cohort, "RSA"),
+           time_org = time_trans - 60,
+           lwrS = ifelse(lwrS < 0, 0, lwrS))
 
   return(pred)
   

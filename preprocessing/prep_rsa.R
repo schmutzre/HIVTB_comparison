@@ -6,6 +6,8 @@ library(janitor)
 library(stringr)
 library(flextable)
 
+source("utils/functions.R")
+
 #### Cleaning the separate data files and preparing to then join them ----------
 
 ## ART treatment ##
@@ -109,8 +111,6 @@ tblMED <- read.csv("data_raw/RSA/tblMED.csv") %>%
   mutate(med_sd = as.Date(med_sd, format = "%Y-%m-%d")) %>% 
   dplyr::select(patient, med_id, med_sd)
 
-tabyl(tblMED$med_id)
-
 ## TB table ##
 
 tblTB <- read.csv("data_raw/RSA/tblTB.csv") %>% 
@@ -212,7 +212,9 @@ tblVIS <- read.csv("data_raw/RSA/tblVIS.csv") %>%
            case_when(
            who_stage == 9 ~ NA,
            TRUE ~ as.character(who_stage))),
-         who_stage = as.factor(ifelse(who_stage %in% c(1,2), "1/2", "3/4"))) %>%
+         who_stage = as.factor(case_when(who_stage %in% c(1,2)  ~ "1/2", 
+                                         who_stage %in% c(3,4) ~ "3/4",
+                                         TRUE ~ NA))) %>%
   filter(difference <= 180) %>%
   arrange(patient, is.na(who_stage), difference) %>% 
   slice(1) %>%
@@ -356,6 +358,7 @@ treatment_art <- treatment_art %>%
     regimen = case_when(treatment == "TDF + 3TC/FTC + EFV/NVP" ~ "NNRTI-based",
                         treatment %in% c("TDF + 3TC/FTC + DTG", "AZT + 3TC/FTC + LPV/r") ~ "INSTI-based",
                         treatment == "ART unspecified" ~ "Other",
+                        !is.na(treatment) ~ "Other",
                         TRUE ~ NA)
   )
 
@@ -410,11 +413,12 @@ df_tb <- df %>%
          !is.na(born) & !is.na(art_start_date),
          age_at_art_start >= 16,
          !is.na(date_tb)) %>% 
-  mutate(who_stage = case_when(presenting_tb == 1 ~ 3))
+  mutate(who_stage = case_when(presenting_tb == 1 ~ "3/4", 
+                               TRUE ~ who_stage))
 
 saveRDS(df_tb, "data_clean/rsa/tb_rsa.rds")
 
-tabyl(df_tb$regimen_tb_group)
+#tabyl(df_tb$regimen_tb_group)
 
 ## ART ##  
 
@@ -427,11 +431,11 @@ df_art <- df %>%
          recent_tb == 0,
          (date_tb >= art_start_date - 60 | is.na(date_tb)),
          id %nin% c("KHSB001000038802", "KHNO001000107107", "KHSB001000189128", "KHSB001000188582")) %>% #birth date seems to be wrong, age at art start = 117 / cd4 > 3500 at art start not plausible
-  mutate(who_stage = case_when(presenting_tb == 1 ~ 3)) %>% 
+  mutate(who_stage = case_when(presenting_tb == 1 ~ "3/4",
+                               TRUE ~ who_stage)) %>% 
   rename(gender = sex)
   
 saveRDS(df_art, "data_clean/rsa/art_rsa.rds")
-
 
 #flextable::flextable(tabyl(df_art$treatment))
 

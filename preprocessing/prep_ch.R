@@ -6,7 +6,8 @@ pacman:: p_load(
   haven,
   janitor,
   gridExtra,
-  stringr,tidyverse
+  stringr,
+  tidyverse
 )
 
 #### Data ----------------------------------------------------------------------
@@ -27,6 +28,8 @@ modif <- read_dta("data_raw/CH/modif_art.dta")
 #' between 2010-2022. These dataframes are mostly overlapping. 
 
 #### Filter studypopulation (Union of HIV- and TB-dataset) ---------------------
+
+#' Vorgehen bei region: für TB Population habe ich Geburtsland genommen, bei HIV Citizenship
 
 filteredBOTH <- complete_ch %>%
   # Step 1: Filtering
@@ -67,8 +70,7 @@ filteredBOTH <- complete_ch %>%
     region = as.factor(case_when(
       region %in% c("Southern Europe", "Western Europe", "Northern Europe", "Eastern Europe", "Northern America") ~ "Europe/Northern America",
       region %in% c("Eastern Africa", "Middle Africa", "Southern Africa", "Western Africa", "Northern Africa") ~ "Africa",
-      region %in% c("Eastern Asia", "South-Eastern Asia", "Southern Asia", "Western Asia", "Oceania") ~ "Asia/Oceania",
-      region %in% c("Central America", "Latin America and the Caribbean", "South America", "South/Latin America") ~ "South/Latin America",
+      region %in% c("Eastern Asia", "South-Eastern Asia", "Southern Asia", "Western Asia", "Oceania", "Central America", "Latin America and the Caribbean", "South America", "South/Latin America") ~ "South/Latin America/Asia/Oceania",
       region %in% "Unknown/World" ~ NA,
       TRUE ~ region
     ))
@@ -92,10 +94,8 @@ get_continent <- function(country) {
       return("Africa")
     } else if (country %in% c("Russia", "Austria", "Romania", "Italy", "Spain", "Portugal", "Switzerland", "Russian Federation", "United States", "Canada")) {
       return("Europe/Northern America")
-    } else if (country %in% c("Argentina", "Chile", "Brasil", "Peru", "Bolivia", "South America", "Latin America and the Caribbean")) {
-      return("South/Latin America")
-    } else if (country %in% c("Thailand", "Indonesia", "Cambodia", "Vietnam")) {
-      return("Asia/Oceania")
+    } else if (country %in% c("Argentina", "Chile", "Brasil", "Peru", "Bolivia", "South America", "Latin America and the Caribbean", "Thailand", "Indonesia", "Cambodia", "Vietnam")) {
+      return("South/Latin America/Asia/Oceania")
     }
     else {
       return(NA)
@@ -114,6 +114,8 @@ filteredBOTH_region <- filteredBOTH %>%
   dplyr::select(-region, -tbd_pat_birth) %>% 
   mutate(region = as.factor(region_born)) %>% 
   dplyr::select(-region_born)
+
+tabyl(filteredBOTH_region$region)
 
 #### CD4 and VL baseline -------------------------------------------------------
 
@@ -191,7 +193,9 @@ who_stages <- filteredBOTH.lab %>%
       (cdc_group == "B" & cd4_baseline < 350) ~ 3,
       cdc_group == "C" ~ 4
     )),
-    who_stage = as.factor(ifelse(who_stage %in% c(1,2), "1/2", "3/4"))) %>% 
+    who_stage = as.factor(case_when(who_stage %in% c(1,2) ~ "1/2", 
+                                    who_stage %in% c(3,4) ~ "3/4",
+                                    TRUE ~ NA))) %>% 
     ungroup() 
 
 filteredBOTH.who <- filteredBOTH.lab %>% 
@@ -313,8 +317,7 @@ tb_resi <- df_tb %>%
   filter(value == 1) %>%
   group_by(id) %>%
   summarise(
-    resistance_tb = paste(gsub("_R$", "", Drug), collapse = ", ")
-  ) %>%
+    resistance_tb = paste(gsub("_R$", "", Drug), collapse = ", ")) %>%
   ungroup()
 
 filteredBOTH.resist <- filteredBOTH.regimen %>% 
@@ -393,7 +396,8 @@ filteredBOTH.tbsite <- filteredBOTH.tboutcome %>%
 final <- filteredBOTH.tbsite %>% 
   mutate(disease_tb = as.factor(disease_tb),
          who_stage = as.factor(who_stage),
-         id = as.character(id))
+         id = as.character(id)) %>% 
+  filter(last_persontime >=0)
 
 #### lab data -----------------------------------------------------------
 

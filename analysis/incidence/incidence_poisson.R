@@ -10,14 +10,17 @@ library(broom)
 
 #### data preparation ----------------------------------------------------------
 
+custom_breaks <- c(16, 34, 44, 100)
+
 df <- readRDS("data_clean/art_noTB.rds") %>% 
   mutate(incident_tb = as.numeric(as.character(incident_tb)),
          persontime_years = case_when(
            incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
            incident_tb == 0 ~ last_persontime/360),
-    cohort = fct_relevel(cohort, "RSA"),
-    cd4_group = fct_relevel(cd4_group, "350+"),
-    pre_2016 = fct_relevel(pre_2016, "1")) %>% 
+         agegroup = cut(age_at_art_start, breaks = custom_breaks, labels = c("16-34","35-44", "45+"), include.lowest = TRUE),
+         cohort = fct_relevel(cohort, "RSA"),
+         cd4_group = fct_relevel(cd4_group, "350+"),
+         pre_2016 = fct_relevel(pre_2016, "1")) %>% 
   dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, cd4_group, rna_group, pre_2016) %>% 
   filter(persontime_years > 0)
 
@@ -46,6 +49,37 @@ df_irr <- tibble(
   cohort = "RSA")
 
 saveRDS(df_irr, "results/incidenceTB/irrCohort.rds")
+
+df_incidenceRate <- df %>% 
+  group_by(cohort) %>% 
+  summarise(sum_incident_tb = sum(incident_tb == 1), 
+            sum_person_years = sum(persontime_years)/1000) %>% 
+  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95),
+         cohort = ifelse(cohort == "RSA", "South Africa", "Swizerland")) 
+
+incidence_rate <- df_incidenceRate %>% 
+  ggplot(aes(y = cohort, x = pois$rate)) +
+  geom_point(aes(color = cohort), position = position_dodge(width = 0.5), size = 2) +
+  geom_errorbar(aes(xmin = pois$lower, xmax = pois$upper, color = cohort), 
+                position = position_dodge(width = 0.5), width = 0.2) +
+  scale_color_manual(values = wes_palette("Moonrise2")) +
+  theme_classic(base_size = 20) +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 20), # Set title properties here
+        plot.title.position = "plot",
+        panel.background = element_rect(fill='transparent'), #transparent panel bg
+        plot.background = element_rect(fill='transparent', color=NA),
+        legend.background = element_rect(fill = "transparent", color = NA)) +
+  labs( x = NULL, y = NULL,
+       title = "1a | Incident TB rate") +
+  coord_cartesian(xlim = c(0,10))+
+  scale_x_continuous(expand = c(0,0), limits = c(0,10), n.breaks = 3) +
+  scale_y_discrete(labels = NULL) +
+  guides(color = guide_legend(title = NULL))
+
+incidence_rate
+
+ggsave(plot = incidence_rate, filename = "results/incidenceTB/rate.png", bg='transparent', height = 6.5, units = "cm")
 
 #### incidence rate per baseline group -----------------------------------------
 
