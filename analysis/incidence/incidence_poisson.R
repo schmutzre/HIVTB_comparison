@@ -54,32 +54,53 @@ df_incidenceRate <- df %>%
   group_by(cohort) %>% 
   summarise(sum_incident_tb = sum(incident_tb == 1), 
             sum_person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95),
-         cohort = ifelse(cohort == "RSA", "South Africa", "Swizerland")) 
+  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95))
+
+df_incidenceRate$cohort <- factor(df_incidenceRate$cohort, 
+                                  levels = c("RSA", "CH"), 
+                                  labels = c("South Africa", "Switzerland"))
+
+cohort_colors <- wes_palette("Moonrise2")
+names(cohort_colors) <- c("South Africa", "Switzerland")
 
 incidence_rate <- df_incidenceRate %>% 
-  ggplot(aes(y = cohort, x = pois$rate)) +
-  geom_point(aes(color = cohort), position = position_dodge(width = 0.5), size = 2) +
-  geom_errorbar(aes(xmin = pois$lower, xmax = pois$upper, color = cohort), 
+  ggplot(aes(x = cohort, y = pois$rate)) +
+  geom_point(aes(color = cohort), position = position_dodge(width = 0.5)) +
+  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
                 position = position_dodge(width = 0.5), width = 0.2) +
-  scale_color_manual(values = wes_palette("Moonrise2")) +
-  theme_classic(base_size = 20) +
+  scale_color_manual(values = cohort_colors) +
+  theme_classic()+
   theme(legend.position = "none",
-        plot.title = element_text(size = 20), # Set title properties here
+        plot.title.position = "plot") +
+  labs( x = NULL, y = "Incident TB rate per 1,000 person-years",
+        title = NULL) +
+  scale_y_continuous(limits = c(0,12), expand = c(0,0)) 
+
+incidence_rate
+
+ggsave(plot = incidence_rate, filename = "results/incidenceTB/rate.png", bg='transparent', height = 6.5, units = "cm")
+
+#### poster IWHOD
+
+incidence_rate_poster <- df_incidenceRate %>% 
+  ggplot(aes(x = cohort, y = pois$rate)) +
+  geom_point(aes(color = cohort), position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
+                position = position_dodge(width = 0.5), width = 0.2, linewidth = 1.5) +
+  scale_color_manual(values = cohort_colors) +
+  theme_classic(base_size = 28) +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 28), # Set title properties here
         plot.title.position = "plot",
         panel.background = element_rect(fill='transparent'), #transparent panel bg
         plot.background = element_rect(fill='transparent', color=NA),
         legend.background = element_rect(fill = "transparent", color = NA)) +
   labs( x = NULL, y = NULL,
-       title = "1a | Incident TB rate") +
-  coord_cartesian(xlim = c(0,10))+
-  scale_x_continuous(expand = c(0,0), limits = c(0,10), n.breaks = 3) +
-  scale_y_discrete(labels = NULL) +
+        title = expression(atop(paste(bold("A |"), " Incident TB"), ""))) +
+  scale_y_continuous(n.breaks = 3) +
   guides(color = guide_legend(title = NULL))
 
 incidence_rate
-
-ggsave(plot = incidence_rate, filename = "results/incidenceTB/rate.png", bg='transparent', height = 6.5, units = "cm")
 
 #### incidence rate per baseline group -----------------------------------------
 
@@ -164,60 +185,6 @@ plot_both
 
 # Save the combined plot
 ggsave(plot = plot_both, file = "results/incidenceTB/bothGrouped.png", 
-       width = 16, height = 11, units = "cm") 
-
-#### incidence rate per pre/post 2016 ------------------------------------------
-
-### RNA ###
-
-df_rna2k16 <- df %>% 
-  mutate(rna_group = case_when(is.na(rna_group) | rna_group == "NA" ~ "NA",
-                               rna_group %in% c("0-999", "1000-9999") ~ "< 10^3",
-                               TRUE ~ ">= 10^3")) %>% 
-  group_by(cohort, rna_group, pre_2016) %>% 
-  summarise(sum_incident_tb = sum(incident_tb == 1), 
-            sum_person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95)) 
-
-plot_rna2k16 <- df_rna2k16 %>% 
-  ggplot(aes(x = rna_group, y = pois$rate, shape = as.factor(pre_2016))) +
-  geom_point(aes(color = cohort), position = position_dodge(width = 0.5)) +
-  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
-                position = position_dodge(width = 0.5), width = 0.2) +
-  labs(x = "Baseline CD4 count", y = "Incident TB rate per 1,000 person-years") +
-  scale_y_continuous() +
-  scale_color_manual(values = wes_palette("Moonrise2")) +
-  theme_classic() +
-  scale_x_discrete(labels = c("NA" = "NA", "< 10^3" = expression("< 10"^3), ">= 10^3" = expression("\u2265 10"^3))) +
-  facet_wrap(~cohort, scales = "free_y") 
-
-plot_rna2k16
-
-### CD4 ###
-
-df_cd42k16 <- df %>% 
-  mutate(cd4_group = case_when(is.na(cd4_group) | cd4_group == "NA" ~ "NA",
-                               TRUE ~ cd4_group)) %>% 
-  group_by(cohort, cd4_group, pre_2016) %>% 
-  summarise(sum_incident_tb = sum(incident_tb == 1), 
-            sum_person_years = sum(persontime_years)/1000) %>% 
-  mutate(pois = pois.exact(x = sum_incident_tb, pt = sum_person_years, conf.level = 0.95)) 
-
-plot_cd42k16 <- df_cd42k16 %>% 
-  ggplot(aes(x = cd4_group, y = pois$rate, shape = as.factor(pre_2016))) +
-  geom_point(aes(color = cohort), position = position_dodge(width = 0.5)) +
-  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
-                position = position_dodge(width = 0.5), width = 0.2) +
-  labs(x = "Baseline CD4 count", y = "Incident TB rate per 1,000 person-years") +
-  scale_y_continuous() +
-  scale_color_manual(values = wes_palette("Moonrise2")) +
-  theme_classic() +
-  facet_wrap(~cohort, scales = "free_y")
-
-plot_cd42k16
-
-ggsave(plot = plot_cd42k16, 
-       file = "results/incidenceTB/2k16.png", 
        width = 16, height = 11, units = "cm") 
 
 #### IRR compared to 350+ group ------------------------------------------------

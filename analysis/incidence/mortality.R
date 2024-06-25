@@ -27,6 +27,8 @@ df <- readRDS("data_clean/art.rds") %>%
   dplyr::select(id, cohort, art_start_date, exit, persontime_years) %>% 
   filter(persontime_years > 0)
 
+#### calculation ---------------------------------------------------------------
+
 
 df_manual <- df %>% 
   group_by(cohort) %>% 

@@ -28,7 +28,6 @@ library(biostatUZH)
 # Table 1
 
 ```{r, include=FALSE}
-
 complete <-  readRDS("../../data_clean/art.rds") 
 ch <- readRDS("../../data_clean/ch/art_ch.rds")
 rsa <- readRDS("../../data_clean/rsa/art_rsa.rds")
@@ -140,19 +139,11 @@ table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who
        caption = "Baseline characteristics of HIV-positive patients starting antiretroviral treatment (ART) between 2010 and 2022, presenting and not presenting with TB. We compared patients with prevalent TB [presenting with TB] (all forms, diagnosis 2 months before/after ART start) with patients with no history of TB [not presenting with TB]. Patients with a TB diagnosis >2 months before ART start were excluded.",
        render.continuous = my.render.cont,
        render.categorical = my.render.cat)
-
-library(magrittr)
-
-tbl1 <- table1(~ age_at_art_start + gender + site_tb + cd4_baseline + rna_baseline + who_stage + regimen + regimen_tb_group_nres | cohort + presenting_tb, data = complete,
-               overall = c(left = "All"),
-       topclass="Rtable1-zebra",
-       render.continuous = my.render.cont,
-       render.categorical = my.render.cat)
-
-write.table (tbl1 , "my_table_1_file.csv", col.names = T, row.names=F, append= T, sep=',')
 ```
 
 # Table 1b
+
+This is the same table, but without stratification for presenting TB.
 
 ```{r}
 table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage + regimen| cohort, data = complete,
@@ -164,6 +155,8 @@ table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage + r
 ```
 
 # Table (TB cases but within the studypopulation of Table 1)
+
+Here, we compare TB cases (presenting with TB + incident TB) within the population defined in table 1.
 
 ```{r}
 complete_tb <- complete %>% 
@@ -178,7 +171,7 @@ table1(~ age_at_art_start + gender + cd4_baseline + rna_baseline + who_stage + r
 ```
 
 
-### Top 5 most used ART treatments per cohort
+### Top 5 ART treatments
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
 ### TOP 5 ART treatments
@@ -389,13 +382,6 @@ tbl_reg <- table1(~regimen_tb_group | cohort, data = tb_nres,
 
 write.table (tbl_reg , "tblTB.csv", col.names = T, row.names=F, append= T, sep=',')
 ```
-
-## ART regimen
-
-```{r}
-
-```
-
 
 ## Median follow-up time
 

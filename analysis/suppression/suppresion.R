@@ -62,38 +62,36 @@ aj_ch400 <- aj_400 %>% filter(cohort == "CH")
 plot_aj_rsa400 <- survfit2(Surv(time, event, type = "mstate") ~ presenting_tb, data = aj_rsa400) |>
   ggcuminc(outcome = c("1"),
            aes(linetype = presenting_tb),
-           linewidth = 0.7, 
+           linewidth = 1.5, 
            color = wes_palette("Moonrise2")[1]) +
   add_confidence_interval(fill = wes_palette("Moonrise2")[1]) +
-  theme_classic(base_size = 20) +
+  theme_classic(base_size = 28) +
   coord_cartesian(xlim = c(0,362), ylim = c(0,1))+
   scale_x_continuous(expand = c(0,0),  breaks = seq(0, 360, 180)) +
   scale_y_continuous(expand = c(0,0), 
                      labels = function(y) paste0(y * 100)) +  
   theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
-  scale_color_manual(values = wes_palette("Moonrise2")) +
-  scale_fill_manual(values = wes_palette("Moonrise2")) +
   theme(axis.title.y = element_blank(),
         axis.title.x = element_blank()) +
   theme(legend.position = "none",
         legend.title = element_blank(), 
-        plot.title = element_text(size = 20, face = "bold"), # Set title properties here
+        plot.title = element_text(size = 28, face = "bold"), # Set title properties here
         plot.title.position = "plot",
         panel.background = element_rect(fill='transparent'), #transparent panel bg
-        plot.background = element_rect(fill='transparent', color=NA)) 
-  labs(title = expression("1b | Time to viral suppression VL < 400 (copies/ml)"))
+        plot.background = element_rect(fill='transparent', color=NA),
+        plot.margin = margin(t = 5, r = 18, b = 5, l = 5, unit = "pt")) 
 
 plot_aj_rsa400
 
 plot_aj_ch400 <- survfit2(Surv(time, event, type = "mstate") ~ presenting_tb, data = aj_ch400) |>
   ggcuminc(outcome = c("1"),
            aes(linetype = presenting_tb),
-           linewidth = 0.7, 
+           linewidth = 1.5, 
            color = wes_palette("Moonrise2")[2]) +
   add_confidence_interval(fill = wes_palette("Moonrise2")[2]) +
-  theme_classic(base_size = 20) +
+  theme_classic(base_size = 28) +
   coord_cartesian(xlim = c(0,362), ylim = c(0,1))+
-  scale_x_continuous(expand = c(0,0),  breaks = seq(0, 360, 180)) +
+  scale_x_continuous(expand = c(0,0),  breaks = seq(0, 360, 180), ) +
   scale_y_continuous(expand = c(0,0), 
                      labels = function(y) paste0(y * 100)) +  
   theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
@@ -103,17 +101,20 @@ plot_aj_ch400 <- survfit2(Surv(time, event, type = "mstate") ~ presenting_tb, da
         axis.title.x = element_blank()) +
   theme(legend.position = "none",
         legend.title = element_blank(), 
-        plot.title = element_text(size = 20, face = "bold"), # Set title properties here
+        plot.title = element_text(size = 28, face = "bold"), # Set title properties here
         plot.title.position = "plot",
         panel.background = element_rect(fill='transparent'), #transparent panel bg
-        plot.background = element_rect(fill='transparent', color=NA)) 
+        plot.background = element_rect(fill='transparent', color=NA),
+        plot.margin = margin(t = 5, r = 18, b = 5, l = 5, unit = "pt")) 
 
 plot_aj_ch400
 
 aj_sup_both400 <- ggarrange(plot_aj_rsa400, plot_aj_ch400, ncol = 2) %>% 
   annotate_figure(
-                  left = text_grob("Proportion (%)",size=20, rot = 90),
-                  top = text_grob("2a | Time to viral suppression VL < 400 (copies/ml)",size=20, hjust = 0.77))
+                  left = text_grob("Proportion (%)",size=28, rot = 90),
+                  top = text_grob(expression(bold("A | ") * "Time to viral suppression: Viral load < 400 copies/ml"),size=28, hjust = 0.53, vjust = .35))
+
 aj_sup_both400
 
 ggsave(plot = aj_sup_both400, filename = "results/suppression/suppression_400.png", units = "cm")
+

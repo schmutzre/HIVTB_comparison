@@ -62,7 +62,7 @@ aj_ch350 <- aj_350 %>% filter(cohort == "CH")
 plot_aj_rsa350 <- survfit2(Surv(time, event, type = "mstate") ~ presenting_tb, data = aj_rsa350) |>
   ggcuminc(outcome = c("1"),
            aes(linetype = presenting_tb),
-           linewidth = 0.7, 
+           linewidth = 1.5, 
            color = wes_palette("Moonrise2")[1]) +
   add_confidence_interval(fill = wes_palette("Moonrise2")[1]) +
   theme_classic(base_size = 20) +
@@ -80,17 +80,18 @@ plot_aj_rsa350 <- survfit2(Surv(time, event, type = "mstate") ~ presenting_tb, d
         plot.title = element_text(size = 20, face = "bold"), # Set title properties here
         plot.title.position = "plot",
         panel.background = element_rect(fill='transparent'), #transparent panel bg
-        plot.background = element_rect(fill='transparent', color=NA)) 
+        plot.background = element_rect(fill='transparent', color=NA),
+        plot.margin = margin(t = 5, r = 18, b = 5, l = 5, unit = "pt")) 
 
 plot_aj_rsa350
 
 plot_aj_ch350 <- survfit2(Surv(time, event, type = "mstate") ~ presenting_tb, data = aj_ch350) |>
   ggcuminc(outcome = c("1"),
            aes(linetype = presenting_tb),
-           linewidth = 0.7, 
+           linewidth = 1.5, 
            color = wes_palette("Moonrise2")[2]) +
   add_confidence_interval(fill = wes_palette("Moonrise2")[2]) +
-  theme_classic(base_size = 20) +
+  theme_classic(base_size = 18) +
   coord_cartesian(xlim = c(0,362), ylim = c(0,1))+
   scale_x_continuous(expand = c(0,0),  breaks = seq(0, 360, 60)) +  
   scale_y_continuous(expand = c(0,0), 
@@ -102,17 +103,18 @@ plot_aj_ch350 <- survfit2(Surv(time, event, type = "mstate") ~ presenting_tb, da
         axis.title.x = element_blank()) +
   theme(legend.position = "none",
         legend.title = element_blank(), 
-        plot.title = element_text(size = 20, face = "bold"), # Set title properties here
+        plot.title = element_text(size = 18, face = "bold"), # Set title properties here
         plot.title.position = "plot",
         panel.background = element_rect(fill='transparent'), #transparent panel bg
-        plot.background = element_rect(fill='transparent', color=NA)) 
+        plot.background = element_rect(fill='transparent', color=NA),
+        plot.margin = margin(t = 5, r = 18, b = 5, l = 5, unit = "pt")) 
 
 
 plot_aj_ch350
 
 aj_rec_both350 <- ggarrange(plot_aj_rsa350,plot_aj_ch350, ncol = 2) %>% 
-  annotate_figure(left = text_grob("Proportion (%)", size = 20, rot = 90),
-                  top = text_grob("2b | Time to immun recovery CD4 cell count > 350 (cells/µl)", size=20, hjust = 0.66))
+  annotate_figure(left = text_grob("Proportion (%)", size = 18, rot = 90),
+                  top = text_grob(expression(bold("B | ") * "Time to immun recovery: CD4 cell count > 350 (cells/µl)"), size=18, hjust = 0.73, vjust = .1))
 
 aj_rec_both350
 

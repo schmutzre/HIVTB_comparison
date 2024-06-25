@@ -11,6 +11,7 @@ source("utils/functions.R")
 #### Cleaning the separate data files and preparing to then join them ----------
 
 ## ART treatment ##
+
 tblART <- read.csv("data_raw/RSA/tblART.csv") %>% 
   mutate(across(c(art_sd, art_ed), ~na_if(.x, "")),
          across(c(art_sd, art_ed), ~as.Date(.x, format = "%Y-%m-%d"))) %>% 
@@ -424,7 +425,7 @@ saveRDS(df_tb, "data_clean/rsa/tb_rsa.rds")
 
 df_art <- df %>% 
   filter(id %in% tblNAIVE$patient) %>% 
-  filter(between(art_start_date, as.Date("2010-01-01"), as.Date("2022-12-31")),
+  filter(between(art_start_date, as.Date("2017-01-01"), as.Date("2022-12-31")),
          sex != 9,
          !is.na(born) & !is.na(art_start_date),
          age_at_art_start >= 16,
@@ -457,9 +458,7 @@ lab_cd4 <- tblLAB_CD4 %>%
   arrange(patient, date_cd4) %>% 
   group_by(patient) %>% 
   mutate(timepoint = row_number(),
-         time_diff = as.numeric(date_cd4 - art_start_date, units = "days"),
-         pre_2016 = as.factor(case_when(art_start_date <= as.Date("2016-12-31") ~ 1,
-                                        TRUE ~ 0))) %>% 
+         time_diff = as.numeric(date_cd4 - art_start_date, units = "days")) %>% 
   ungroup() %>% 
   rename(id = patient)
 

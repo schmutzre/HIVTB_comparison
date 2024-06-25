@@ -576,32 +576,40 @@ calculate_row_means_with_original_columns <- function(predictions_list) {
 final_output <- calculate_row_means_with_original_columns(all_predictions)
 
 final_output <- final_output %>% 
-  mutate(presenting_tb = ifelse(presenting_tb == "Without prevalent TB", "Not presenting TB", "Presenting TB"))
+  mutate(presenting_tb = ifelse(presenting_tb == "Without prevalent TB", "Not presenting with TB", "Presenting with TB"))
+
+final_output$cohort <- factor(final_output$cohort, 
+                              levels = c("RSA", "CH"), 
+                              labels = c("South Africa","Switzerland"))
 
 trend_cd42 <- ggplot(final_output, aes(x = time_org)) +
   facet_wrap(~presenting_tb) +
-  scale_x_continuous(expand = c(0,0), limits = c(-60, 360), breaks = seq(-60, 360, 60)) +
-  scale_y_continuous(limits = c(0,650), expand = c(0,0))+
-  geom_line(aes(y = mean_fit, color = cohort)) +
+  scale_x_continuous(expand = c(0,0), limits = c(-60, 360), breaks = c(-60,0,180,360)) +
+  scale_y_continuous(limits = c(0,650), expand = c(0,0)) +
+  geom_line(aes(y = mean_fit, color = cohort, linetype = presenting_tb), linewidth = 1.5) +
   geom_ribbon(aes(ymin = mean_lwr, ymax = mean_upr, fill = cohort), alpha = 0.2) +
-  labs(y = expression("CD4 count (cells/µl)"),
+  labs(y = expression("CD4 (cells/µl)"),
        x = NULL) +
   geom_hline(yintercept = 350, linetype = "dotted") +
   geom_vline(xintercept = 0, linetype = "dotted") +
   scale_color_manual(values = wes_palette("Moonrise2")) +
   scale_fill_manual(values = wes_palette("Moonrise2")) +
-  theme_minimal(base_size = 20) +
-  theme(legend.position = "none", legend.title = element_blank(),
-        panel.spacing.x = unit(.66, "cm"),
+  theme_classic(base_size = 28) +
+  theme(legend.position = NULL, 
+        legend.title = element_blank(),
+        legend.text = element_text(size = 28),
+        panel.spacing.x = unit(1.3, "cm"),
         plot.title.position = "plot",
-        plot.title = element_text(size = 20, hjust = 0),
-        panel.background = element_rect(fill='transparent'), #transparent panel bg
+        plot.title = element_text(size = 28, hjust = 0, margin = margin(b = 1, unit = "pt")),  # Reduce bottom margin of title
+        panel.background = element_rect(fill='transparent'), 
         plot.background = element_rect(fill='transparent', color=NA),
-        panel.grid.major = element_blank(), #remove major gridlines
-        panel.grid.minor = element_blank()) +
-  labs(title = expression("2c | Modeled CD4 trajectories"), 
-       caption = "Mean as lines, 95%-CI as ribbons")
-
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.margin = margin(t = 1, r = 18, b = 5, l = 5, unit = "pt"),
+        strip.text = element_blank(),  # Adjust margin of facet strip text
+        strip.background = element_rect(fill='transparent', color=NA)) +
+  labs(title = expression(bold("B | ") * "Modeled CD4 trajectories")) +
+  guides(color = "none", fill = "none", linetype = "none")  
 trend_cd42
 
 ggsave(plot = trend_cd4, filename = "results/immun/trend_cd4.png", 
