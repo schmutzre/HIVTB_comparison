@@ -4,6 +4,8 @@ library(tidyverse)
 library(jtools)
 library(tableone)
 library(mice)
+library(jtools)
+library(brglm2)
 
 #### data preparation ---------------------------------------------------------
 
@@ -39,26 +41,46 @@ df_rsa <- df %>% filter(cohort == "RSA") %>%
 
 ### CH ###
 
-m1_ch <- glm(incident_tb ~ sex + agegroup + who + regio +  bcd4_tr + brna_tr, 
-                 family = "binomial", 
-                 data = df_ch)
+m1_ch <- glm(incident_tb ~ sex + 
+               agegroup + 
+               who +
+               regio +  bcd4_tr + brna_tr, 
+                 family = binomial(link = "logit"), 
+                 data = df_ch, method = "brglmFit")
 
-summ(m1_ch, exp = T)
+
+tbl_regCH.complete <- m1_ch |>
+  tbl_regression(exponentiate = TRUE,
+                 add_estimate_to_reference_rows = TRUE,
+                 label = list(sex = "Sex",
+                              agegroup = "Age group",
+                              who = "WHO stage",
+                              regio = "Region",
+                              bcd4_tr = "CD4 count (sqrt)",
+                              brna_tr = "RNA (log10)")) %>% 
+  bold_labels()
 
 ### RSA ###
 
-m1_rsa <- glm(incident_tb ~ sex + agegroup + bcd4_tr, 
-                  family = "binomial", 
-                  data = df_rsa)
+m1_rsa <- glm(incident_tb ~ sex + agegroup + bcd4_tr + who, 
+                  family = binomial(link = "logit"), 
+                  data = df_rsa, method = "brglmFit")
 
-summ(m1_rsa, exp = T)
+tbl_regRSA.complete <- m1_rsa |>
+  tbl_regression(exponentiate = TRUE,
+                 add_estimate_to_reference_rows = TRUE,
+                 label = list(sex = "Sex",
+                              agegroup = "Age group",
+                              who = "WHO stage",
+                              bcd4_tr = "CD4 count (sqrt)")) %>% 
+  bold_labels()
 
 #### investigate systematic missingness ----------------------------------------
 
 data.to.impute_ch <- df_ch 
 
 data.to.impute_rsa <- df_rsa %>%
-  dplyr::select(-regio, - brna_tr, -who)
+  dplyr::select(-regio, -brna_tr)
 
 syst_miss <- function(df_ti, return) {
   
@@ -109,7 +131,7 @@ miss.mod_ch <- glm(incomplete ~
                      #who + 
                      #incident_tb +
                      regimen, 
-                   family="binomial", 
+                   family= binomial(link = "logit"), 
                    data = data.to.impute_ch,
                    control = list(maxit = 50))
 
@@ -128,9 +150,9 @@ miss.mod_rsa <- glm(incomplete ~
                       agegroup + 
                       bcd4_tr +
                       incident_tb +
-                      #regimen + # does not converge when i include it
+                      regimen + 
                       incident_tb, 
-                    family="binomial", 
+                    family= binomial(link = "logit"), 
                     data = data.to.impute_rsa, 
                     control = list(maxit = 50))
 
@@ -142,24 +164,27 @@ data.to.impute_rsa$incomplete <- NULL
 
 #' here i include variables that are included in the scientific model 
 #' (see complete record analysis) and variables that were significantly related 
-#' to missingness in the previous analsysis.
+#' to missingness in the previous analysis.
 
 K <- 20 # number of imputed datasets
 
 ### CH ###
 
 pmat_ch <- matrix(
-  c(0,1,1,1,1,1,1,0, # sex
-    1,0,1,1,1,1,1,0, # agegroup
-    1,1,0,1,1,1,1,0, # regio
-    1,1,1,0,1,1,1,0, # bcd4_tr
-    1,1,1,1,0,1,1,0, # brna_tr
-    1,1,1,1,1,0,1,0, # who
-    1,1,1,1,1,1,0,0, # regimen
+  c(0,1,1,1,1,1,1,1, # sex
+    1,0,1,1,1,1,1,1, # agegroup
+    1,1,0,1,1,1,1,1, # regio
+    1,1,1,0,1,1,1,1, # bcd4_tr
+    1,1,1,1,0,1,1,1, # brna_tr
+    1,1,1,1,1,0,1,1, # who
+    1,1,1,1,1,1,0,1, # regimen
     1,1,1,1,1,1,1,0), #incident_tb
   nrow = 8,
-  byrow = TRUE)
-
+  byrow = TRUE,
+  dimnames = list(c("sex", "agegroup", "regio", "bcd4_tr", "brna_tr", "who", "regimen", "incident_tb"),
+                  c("sex", "agegroup", "regio", "bcd4_tr", "brna_tr", "who", "regimen", "incident_tb"))
+)
+data
 # shell imputation (for post processing)
 
 ini_ch <- mice(data = data.to.impute_ch, maxit = 0)
@@ -189,16 +214,36 @@ summary(complete(ch.imp, 0)) # with missingness, index 0
 summary(complete(ch.imp, 1)) # imputed index 1:K
 plot(ch.imp)
 
+# Applying transformations to each imputed dataset
+ch.imp2 <- lapply(1:K, function(k) {
+  dataset <- complete(ch.imp, k)
+  
+  # Mutate the bcd4_tr column to create categories
+  dataset <- dataset %>%
+    mutate(
+      bcd4_tr_category = case_when(
+        bcd4_tr^2 < 100 ~ "0-99",
+        bcd4_tr^2 < 350 ~ "100-349",
+        bcd4_tr^2 >= 350 ~ "350+"),
+      bcd4_tr_category = factor(bcd4_tr_category, levels = c("350+", "100-349", "0-99"))
+    )
+  
+  return(dataset)
+})
+
 ### RSA ###
 
 pmat_rsa <- matrix(
-  c(0,1,1,1,1, # sex
-    1,0,1,1,1, # agegroup
-    1,1,0,1,1, # bcd4_tr
-    1,1,1,0,1, # regimen
-    1,1,1,1,0), # incident_tb
-  nrow = 5, 
-  byrow = TRUE)
+  c(0,1,1,1,1,0, # sex
+    1,0,1,1,1,0, # agegroup
+    1,1,0,1,1,0, # bcd4_tr
+    1,1,1,0,1,0, # who
+    1,1,1,1,0,0, # regimen
+    1,1,1,1,1,0), # incident_tb
+  nrow = 6, 
+  byrow = TRUE,
+  dimnames = list(c("sex", "agegroup", "bcd4_tr", "who", "regimen", "incident_tb"),
+                  c("sex", "agegroup", "bcd4_tr", "who", "regimen", "incident_tb")))
 
 # shell imputation (for post processing) #
 
@@ -214,6 +259,7 @@ rsa.imp <- mice(data = data.to.impute_rsa,
                 method = c("", #sex
                            "", #agegroup
                            "norm",  # bcd4_tr
+                           "logreg", #who
                            "polyreg", #regimen
                            ""), #incident_tb
                 predictorMatrix = pmat_rsa,
@@ -232,22 +278,43 @@ summary(complete(rsa.imp, 1)) # imputed index 1:K
 fit_ch_imp <- with(data = ch.imp, 
                    exp = glm(incident_tb ~ 
                                sex + agegroup + who + regio + bcd4_tr + brna_tr,
-                             family = "binomial"))
+                             family = binomial(link = "logit"), method = "brglmFit"))
 
-fit_ch_imp |>
-  pool() |>
-  summary(conf.int = TRUE, exponentiate = TRUE) |>
-  tibble::column_to_rownames("term") |>
-  round(3)
-
+tbl_regCH.imputed <- fit_ch_imp |>
+  tbl_regression(exponentiate = TRUE,
+                 add_estimate_to_reference_rows = TRUE,
+                 label = list(sex = "Sex",
+                              agegroup = "Age group",
+                              who = "WHO stage",
+                              regio = "Region",
+                              bcd4_tr = "CD4 count (sqrt)",
+                              brna_tr = "RNA (log10)")) %>% 
+  bold_labels()
+  
 ### RSA ###
 
 fit_rsa_imp <- with(data = rsa.imp,
-                    exp = glm(incident_tb ~ sex + agegroup + bcd4_tr, 
-                              family="binomial"))
+                    exp = glm(incident_tb ~ sex + agegroup + bcd4_tr + who, 
+                              family=binomial(link = "logit"), method = "brglmFit"))
 
-fit_rsa_imp |>
-  pool() |>
-  summary(conf.int = TRUE, exponentiate = TRUE) |>
-  tibble::column_to_rownames("term") |>
-  round(3)
+tbl_regRSA.imputed <- fit_rsa_imp |>
+  tbl_regression(exponentiate = TRUE,
+                 add_estimate_to_reference_rows = TRUE,
+                 label = list(sex = "Sex",
+                              agegroup = "Age group",
+                              who = "WHO stage",
+                              bcd4_tr = "CD4 count (sqrt)")) %>% 
+  bold_labels()
+
+#### combine results ------------------------------------------------------------
+
+tbl.log.ch <- tbl_merge(
+  tbls = list(tbl_regCH.complete, tbl_regCH.imputed),
+  tab_spanner = c("**Complete**", "**Imputed**")) 
+
+tbl.log.rsa <- tbl_merge(
+  tbls = list(tbl_regRSA.complete, tbl_regRSA.imputed),
+  tab_spanner = c("**Complete**", "**Imputed**")) 
+
+saveRDS(tbl.log.ch, file = "results/incidenceTB/tbl_log_ch.rds")
+saveRDS(tbl.log.rsa, file = "results/incidenceTB/tbl_log_rsa.rds")

@@ -12,7 +12,7 @@ art_noTB_rsa <- readRDS("data_clean/rsa/art_noTB_rsa.rds")
 ## Re-order columns in RSA data ##
 
 art_rsa <- art_rsa[ , names(art_ch)]
-tb_rsa <- tb_rsa[ , names(tb_ch)]
+#tb_rsa <- tb_rsa[ , names(tb_ch)]
 
 ## Compare types ##
 #' This will all be solved more elegantly in the future
@@ -28,16 +28,18 @@ compare_types <- data.frame(
 compare_types[compare_types$Type_in_ch != compare_types$Type_in_rsa, ]
 
 art_ch$born <- as.Date(paste0(art_ch$born, "-01-01"), format = "%Y-%m-%d")
-tb_ch$born <- as.Date(paste0(tb_ch$born, "-01-01"), format = "%Y-%m-%d")
+#tb_ch$born <- as.Date(paste0(tb_ch$born, "-01-01"), format = "%Y-%m-%d")
 art_noTB_ch$born <- as.Date(paste0(art_noTB_ch$born, "-01-01"), format = "%Y-%m-%d")
 
-#### Combine data & save -------------------------------------------------------
 
+
+#### Combine data & save -------------------------------------------------------
 art <- rbind(art_ch, art_rsa)
+art$gender <- droplevels(art$gender)
 saveRDS(art, "data_clean/art.rds")
 
-tb <- rbind(tb_ch, tb_rsa)
-saveRDS(tb, "data_clean/tb.rds")
+#tb <- rbind(tb_ch, tb_rsa)
+#saveRDS(tb, "data_clean/tb.rds")
 
 art_noTB <- rbind(art_noTB_ch, art_noTB_rsa)
 saveRDS(art_noTB, "data_clean/art_noTB.rds")

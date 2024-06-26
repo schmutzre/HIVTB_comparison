@@ -160,13 +160,13 @@ filteredBOTH.lab <- filteredBOTH.lab %>%
       rna_baseline >= 0 & rna_baseline <= 999 ~ "0-999",
       rna_baseline >= 1000 & rna_baseline <= 9999 ~ "1000-9999",
       rna_baseline >= 10000 ~ "10000+",
-      TRUE ~ "NA"
+      TRUE ~ NA
     )),
     cd4_group = as.factor(case_when(
       cd4_baseline >= 0 & cd4_baseline <= 99 ~ "0-99",
       cd4_baseline >= 100 & cd4_baseline <= 349 ~ "100-349",
       cd4_baseline >= 350 ~ "350+",
-      TRUE ~ "NA"
+      TRUE ~ NA
     )))
   
 #### WHO stage -----------------------------------------------------------------
@@ -262,23 +262,29 @@ filteredBOTH.regimen <- filteredBOTH.person %>%
   mutate(treatment = str_replace_all(treatment, "ETC", "FTC")) %>%
   mutate(
     treatment = case_when(
-      str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & (str_detect(treatment, "EFV") | str_detect(treatment, "NVP")) ~ "TDF + 3TC/FTC + EFV/NVP",
+      str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & (str_detect(treatment, "EFV")) ~ "TDF + 3TC/FTC + EFV",
+      str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & (str_detect(treatment, "LPV")) ~ "TDF + 3TC/FTC + LPV/r",
+      str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & (str_detect(treatment, "NVP")) ~ "TDF + 3TC/FTC + NVP",
+      str_detect(treatment, "AZT") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "LPV") ~ "AZT + 3TC/FTC + LPV/r",
       str_detect(treatment, "AZT") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "DTG") ~ "AZT + 3TC/FTC + DTG",
       str_detect(treatment, "TDF") & str_detect(treatment, "AZT") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "DTG") ~ "TDF + AZT + 3TC/FTC + DTG",
       str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "DTG") ~ "TDF + 3TC/FTC + DTG",
-      str_detect(treatment, "AZT") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "LPV") ~ "AZT + 3TC/FTC + LPV",
-      str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & str_detect(treatment, "LPV") ~ "TDF + 3TC/FTC + LPV",
-      (str_detect(treatment, "AZT") | str_detect(treatment, "TDF")) & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & (str_detect(treatment, "LPV") | str_detect(treatment, "ATV") | str_detect(treatment, "DTG")) ~ "AZT/TDF + 3TC/FTC + LPV/r or ATV/r or DTG",
-      TRUE ~ str_replace_all(treatment, " ", " + ")  # Replace spaces with plus signs
-),
+      str_detect(treatment, "TDF") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & (str_detect(treatment, "LPV") | str_detect(treatment, "ATV") | str_detect(treatment, "DTG")) ~ "TDF + 3TC/FTC + LPV/r or ATV/r or DTG",
+      str_detect(treatment, "AZT") & (str_detect(treatment, "3TC") | str_detect(treatment, "FTC")) & (str_detect(treatment, "LPV") | str_detect(treatment, "ATV") | str_detect(treatment, "DTG")) ~ "AZT + 3TC/FTC + LPV/r or ATV/r or DTG",
+    TRUE ~ treatment),
     regimen = case_when(
       num_inti != 0 ~ "INSTI-based",
       num_pi != 0 ~ "PI-based",
       num_nnrti != 0 ~ "NNRTI-based",
       TRUE ~ "Other")) %>% 
+  mutate(treatment = case_when(
+    !str_detect(treatment, "\\+") ~ "Other",  # Check if '+' is not present
+    TRUE ~ treatment
+  )) %>% 
   dplyr::select(-(num_art:art_start_date.y)) %>% 
   rename(art_start_date = art_start_date.x)
 
+tabyl(filteredBOTH.regimen$treatment)
 #17 are NNRTI and INSTI based
 
 #### TB resistance -------------------------------------------------------------
@@ -378,7 +384,6 @@ final <- filteredBOTH.tbsite %>%
   mutate(who_stage = as.factor(who_stage),
          id = as.character(id),
          born = born) %>% 
-  filter(fup_time >=0) %>% 
   rename(resistant_tb = resistance_tb_any)
 
 #### lab data -----------------------------------------------------------
@@ -419,15 +424,15 @@ art_ch <- final %>%
          year(art_start_date) - born >= 16,
          is.na(exitdate) | exitdate >= art_start_date,
          eligibility_art ==1,
-         recent_tb == 0) %>% 
+         recent_tb == 0,
+         fup_time >0) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
   dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -regdate, -cdc_group, -last_fup_date, -stop, -exitdate, -resistance_tb_mdr) %>% 
   rename(gender = sex)
 
 saveRDS(art_ch, "data_clean/ch/art_ch.rds")
-
 ## ART (only not-presenting) ##
-
+tabyl(art_ch_noTB$cd4_group)
 art_ch_noTB <- art_ch %>% 
   filter(presenting_tb == 0)
 

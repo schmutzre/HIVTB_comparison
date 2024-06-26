@@ -2,7 +2,6 @@
 
 library(tidyverse)
 library(epitools)
-library(fmsb)
 library(wesanderson)
 library(ggpubr)
 library(forcats)
@@ -16,16 +15,13 @@ df <- readRDS("data_clean/art_noTB.rds") %>%
   mutate(incident_tb = as.numeric(as.character(incident_tb)),
          persontime_years = case_when(
            incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")/360),
-           incident_tb == 0 ~ last_persontime/360),
+           incident_tb == 0 ~ fup_time/360),
          agegroup = cut(age_at_art_start, breaks = custom_breaks, labels = c("16-34","35-44", "45+"), include.lowest = TRUE),
          cohort = fct_relevel(cohort, "RSA"),
-         cd4_group = fct_relevel(cd4_group, "350+"),
-         pre_2016 = fct_relevel(pre_2016, "1")) %>% 
-  dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, cd4_group, rna_group, pre_2016) %>% 
-  filter(persontime_years > 0)
+         cd4_group = fct_relevel(cd4_group, "350+")) %>% 
+  filter(persontime_years >0) %>% 
+  dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, persontime_years, cd4_group, rna_group)
 
-levels(df$pre_2016) <- c("pre", "post")
-  
 df_manual <- df %>% 
   group_by(cohort) %>% 
   summarise(sum_incident_tb = sum(incident_tb == 1), 
@@ -35,6 +31,8 @@ df_manual <- df %>%
          cd4_group = "Overall")
 
 #### IRR [RSA / CH] ------------------------------------------------------------
+
+### calculating manually ###
 
 a <-  df_manual %>% filter(cohort == "RSA") %>% pull(sum_incident_tb)
 b <-  df_manual %>% filter(cohort == "CH") %>% pull(sum_incident_tb)
@@ -48,7 +46,21 @@ df_irr <- tibble(
   uppr = irr[["conf.int"]][2],
   cohort = "RSA")
 
-saveRDS(df_irr, "results/incidenceTB/irrCohort.rds")
+### using glm ###
+#' to check if they agree - they do!
+
+glm_main <- glm(incident_tb ~ cohort, 
+    offset=log(persontime_years), 
+    family="poisson", 
+    data = df %>% mutate(cohort = fct_relevel(cohort, "CH")))
+
+reg_table <- glm_main %>% tbl_regression(exponentiate = TRUE, 
+                            add_estimate_to_reference_rows = TRUE,
+                            label = list(cohort = "Cohort"))
+
+saveRDS(reg_table, file = "results/incidenceTB/tbl_pois.rds")
+
+#### incidence rate per cohort -----------------------------------------
 
 df_incidenceRate <- df %>% 
   group_by(cohort) %>% 
@@ -74,40 +86,40 @@ incidence_rate <- df_incidenceRate %>%
         plot.title.position = "plot") +
   labs( x = NULL, y = "Incident TB rate per 1,000 person-years",
         title = NULL) +
-  scale_y_continuous(limits = c(0,12), expand = c(0,0)) 
+  scale_y_continuous(limits = c(0,30), expand = c(0,0)) 
 
 incidence_rate
 
 ggsave(plot = incidence_rate, filename = "results/incidenceTB/rate.png", bg='transparent', height = 6.5, units = "cm")
 
-#### poster IWHOD
+#### poster IWHOD 
 
-incidence_rate_poster <- df_incidenceRate %>% 
-  ggplot(aes(x = cohort, y = pois$rate)) +
-  geom_point(aes(color = cohort), position = position_dodge(width = 0.5), size = 3) +
-  geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
-                position = position_dodge(width = 0.5), width = 0.2, linewidth = 1.5) +
-  scale_color_manual(values = cohort_colors) +
-  theme_classic(base_size = 28) +
-  theme(legend.position = "none",
-        plot.title = element_text(size = 28), # Set title properties here
-        plot.title.position = "plot",
-        panel.background = element_rect(fill='transparent'), #transparent panel bg
-        plot.background = element_rect(fill='transparent', color=NA),
-        legend.background = element_rect(fill = "transparent", color = NA)) +
-  labs( x = NULL, y = NULL,
-        title = expression(atop(paste(bold("A |"), " Incident TB"), ""))) +
-  scale_y_continuous(n.breaks = 3) +
-  guides(color = guide_legend(title = NULL))
-
-incidence_rate
+# incidence_rate_poster <- df_incidenceRate %>% 
+#   ggplot(aes(x = cohort, y = pois$rate)) +
+#   geom_point(aes(color = cohort), position = position_dodge(width = 0.5), size = 3) +
+#   geom_errorbar(aes(ymin = pois$lower, ymax = pois$upper, color = cohort), 
+#                 position = position_dodge(width = 0.5), width = 0.2, linewidth = 1.5) +
+#   scale_color_manual(values = cohort_colors) +
+#   theme_classic(base_size = 28) +
+#   theme(legend.position = "none",
+#         plot.title = element_text(size = 28), # Set title properties here
+#         plot.title.position = "plot",
+#         panel.background = element_rect(fill='transparent'), #transparent panel bg
+#         plot.background = element_rect(fill='transparent', color=NA),
+#         legend.background = element_rect(fill = "transparent", color = NA)) +
+#   labs( x = NULL, y = NULL,
+#         title = expression(atop(paste(bold("A |"), " Incident TB"), ""))) +
+#   scale_y_continuous(n.breaks = 3) +
+#   guides(color = guide_legend(title = NULL))
+# 
+# incidence_rate_poster
 
 #### incidence rate per baseline group -----------------------------------------
 
 ### RNA ###
 
 df_rna <- df %>% 
-  mutate(rna_group = case_when(is.na(rna_group) | rna_group == "NA" ~ "NA",
+  mutate(rna_group = case_when(is.na(rna_group) ~ "NA",
                                rna_group %in% c("0-999", "1000-9999") ~ "< 10^3",
                                TRUE ~ ">= 10^3")) %>% 
   group_by(cohort, rna_group) %>% 
@@ -137,7 +149,7 @@ ggsave(plot = plot_rna, filename = "results/incidenceTB/rnaGrouped.png",
 ### CD4 ###
 
 df_cd4 <- df %>% 
-  mutate(cd4_group = case_when(is.na(cd4_group) | cd4_group == "NA" ~ "NA",
+  mutate(cd4_group = case_when(is.na(cd4_group) ~ "NA",
                                TRUE ~ cd4_group)) %>% 
   group_by(cohort, cd4_group) %>% 
   summarise(sum_incident_tb = sum(incident_tb == 1), 
@@ -162,13 +174,15 @@ print(plot_cd4)
 ggsave(plot = plot_cd4, filename = "results/incidenceTB/cd4Grouped.png", 
        width = 16, height = 11, units = "cm")
 
-## Combined ##
+### Combined ###
 
 plot_rna <- plot_rna +
-  ylab("")
+  ylab("") +
+  theme(legend.title = element_blank())
 
 plot_cd4 <- plot_cd4 +
-  ylab("")
+  ylab("") +
+  theme(legend.title = element_blank())
 
 # Create a combined plot with a single y-axis label
 plot_both <- ggarrange(plot_cd4, plot_rna, # Add labels to identify the plots
@@ -192,17 +206,17 @@ ggsave(plot = plot_both, file = "results/incidenceTB/bothGrouped.png",
 pois_ch <- glm(incident_tb ~ cd4_group, 
                offset=log(persontime_years), 
                family="poisson", 
-               data = df %>% filter(cohort == "CH",
-                                  !is.na(cd4_group) & cd4_group != "NA"))
+               data = df %>% 
+                 filter(cohort == "CH"))
 
 tidy_pois_ch <- tidy(pois_ch, conf.int = TRUE, exponentiate = TRUE) %>% 
   mutate(cohort = as.factor("CH"))
 
-pois_rsa <- glm(incident_tb ~ cd4_group, offset=log(persontime_years), 
+pois_rsa <- glm(incident_tb ~ cd4_group, 
+                offset=log(persontime_years), 
                 family="poisson", 
                 data = df %>% 
-                  filter(cohort == "RSA",
-                         !is.na(cd4_group) & cd4_group != "NA"))
+                  filter(cohort == "RSA"))
 
 tidy_pois_rsa <- tidy(pois_rsa, conf.int = TRUE, exponentiate = TRUE) %>% 
   mutate(cohort = as.factor("RSA"))
@@ -236,5 +250,7 @@ combined_plot <- ggplot(combined_data, aes(x = term, y = estimate, ymin = conf.l
 
 combined_plot
 
-ggsave(plot = combined_plot, file = "results/incidenceTB/irr.png", 
+ggsave(plot = combined_plot, file = "results/incidenceTB/irr_ref350.png", 
        width = 16, height = 11, units = "cm") 
+
+

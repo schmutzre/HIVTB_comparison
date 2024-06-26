@@ -1,0 +1,190 @@
+---
+title: "results"
+author: "Remo Schmutz"
+date: "2024-06-26"
+output:
+   html_document: 
+    fig_caption: true
+    code_folding: hide
+    highlight: tango
+    theme: sandstone
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gtable)
+library(gtsummary)
+library(tidyverse)
+```
+
+# Table 1
+
+```{r}
+art <- readRDS("../data_clean/art.rds")
+
+levels(art$presenting_tb) <- c("Not presenting TB", "Presenting TB")
+levels(art$cohort) <- c("Switzerland", "South Africa")
+
+art$treatment <- factor(art$treatment, levels = c("TDF + 3TC/FTC + EFV",
+                                                     "TDF + 3TC/FTC + DTG",
+                                                     "AZT + 3TC/FTC + LPV/r",
+                                                     "TDF + 3TC/FTC + NVP",
+                                                     "TDF + 3TC/FTC + LPV/r",
+                                                     "TDF + 3TC/FTC + LPV/r or ATV/r or DTG",
+                                                     "AZT + 3TC/FTC + DTG",
+                                                     "AZT + 3TC/FTC + LPV/r or ATV/r or DTG",
+                                                     "Other"))
+
+art %>% 
+  select(`gender`, 
+         `age_at_art_start`, 
+         `cd4_baseline`, 
+         `rna_baseline`,
+         `who_stage`,
+         `fup_time`,
+         `treatment`,
+         cohort,
+         presenting_tb) %>% 
+  tbl_strata(
+    strata = cohort,
+    .tbl_fun = ~ .x %>%
+      tbl_summary(by = presenting_tb,
+                  label = list(gender = "Gender",
+                               age_at_art_start = "Age at ART start",
+                               cd4_baseline = "CD4 count at baseline",
+                               rna_baseline = "RNA at baseline",
+                               who_stage = "WHO stage",
+                               fup_time = "Follow-up time (days)",
+                               treatment = "ART Treatment",
+                               presenting_tb = "Presenting TB")) %>%
+      add_overall() %>%
+      bold_labels() 
+  )
+```
+
+### Plots supplementing Table 1
+
+```{r}
+art_selected <- art %>%
+  select(gender, 
+         age_at_art_start, 
+         cd4_baseline, 
+         rna_baseline,
+         who_stage,
+         fup_time,
+         treatment,
+         cohort,
+         presenting_tb)
+
+# Plot 1: Distribution of age at ART start
+ggplot(art_selected, aes(x = age_at_art_start)) +
+  geom_histogram(binwidth = 5, fill = "skyblue", color = "black") +
+  facet_wrap(~ cohort, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "Distribution of Age at ART Start by Cohort", 
+       x = "Age at ART Start", 
+       y = "Count") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Plot 2: CD4 count at baseline by cohort and presenting TB
+ggplot(art_selected, aes(x = presenting_tb, y = cd4_baseline)) +
+  geom_boxplot(fill = "skyblue") +
+  facet_wrap(~ cohort) +
+  theme_minimal() +
+  labs(title = "CD4 Count at Baseline by Cohort and Presenting TB", 
+       x = "Presenting TB", 
+       y = "CD4 Count at Baseline") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Plot 3: RNA at baseline by cohort and presenting TB
+ggplot(art_selected, aes(x = presenting_tb, y = log10(rna_baseline+1))) +
+  geom_boxplot(fill = "skyblue") +
+  facet_wrap(~ cohort) +
+  theme_minimal() +
+  labs(title = "RNA at Baseline by Cohort and Presenting TB", 
+       x = "Presenting TB", 
+       y = "Log10(RNA) at Baseline") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Plot 4: Follow-up time by cohort and presenting TB
+ggplot(art_selected, aes(x = presenting_tb, y = fup_time)) +
+  geom_boxplot(fill = "skyblue") +
+  facet_wrap(~ cohort) +
+  theme_minimal() +
+  labs(title = "Follow-up Time by Cohort and Presenting TB", 
+       x = "Presenting TB", 
+       y = "Follow-up Time (days)") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Plot 5: Distribution of WHO stage by cohort
+ggplot(art_selected, aes(x = who_stage)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  facet_wrap(~ cohort, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "Distribution of WHO Stage by Cohort", 
+       x = "WHO Stage", 
+       y = "Count") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Plot 6: Distribution of gender by cohort
+ggplot(art_selected, aes(x = gender)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  facet_wrap(~ cohort, scales = "free_y") +
+  theme_minimal() +
+  labs(title = "Distribution of Gender by Cohort", 
+       x = "Gender", 
+       y = "Count") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Plot 7: Distribution of treatment by cohort
+ggplot(art_selected, aes(x = treatment)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  facet_wrap(~ cohort, scales = "free_y") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(title = "Distribution of Treatment by Cohort", 
+       x = "ART Treatment", 
+       y = "Count") +
+  theme(plot.title = element_text(hjust = 0.5))
+ch<-art %>% filter(fup_time > 0)
+```
+
+<hr style="border: 2px solid #000; margin: 20px 0;">
+
+# Primary Analysis
+
+From SAP: "Incident TB: We will compare incident TB using a Poisson model with a log(offset) term to account for the time at risk and estimate the relative difference in rates using incidence rate ratios."
+
+```{r}
+pois <- readRDS("../results/incidenceTB/tbl_pois.rds")
+pois
+```
+
+### Plots supplementing the primary analysis
+
+We did not mention these plots/comparisons in the SAP.
+
+![](images/bothGrouped.png)
+
+![](images/irr_ref350.png)
+
+<hr style="border: 2px solid #000; margin: 20px 0;">
+
+# Secondary analysis 1
+
+From SAP: "Logistic regression in order to estimate risk factors for TB."
+
+```{r}
+log.ch <- readRDS("../results/incidenceTB/tbl_log_ch.rds")
+log.ch
+```
+
+#### South Africa 
+
+```{r}
+log.rsa <- readRDS("../results/incidenceTB/tbl_log_rsa.rds")
+log.rsa
+```
+

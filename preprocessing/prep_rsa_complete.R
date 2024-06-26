@@ -230,6 +230,8 @@ tblLTFU.sa2 <- tblLTFU.sa %>%
   mutate(across(c(drop_out, exitdate, last_info), ~na_if(.x, "")),
          across(c(drop_out, exitdate, last_info), ~as.Date(.x, format = "%Y-%m-%d")))
 
+#cc <- tblLTFU.sa2 %>% filter(patient == "539E30D3-A63D-46FC-ADC0-3F85F577191A")
+
 ## CD4 baseline values ---------------------------------------------------------
 
 baseline_cd4.sa <- tblLAB_CD4.sa2 %>% 
@@ -304,7 +306,6 @@ tb_rna.sa <- tblLAB_RNA.sa2 %>%
   dplyr::select(patient, tb_diag_rna)
 
 #### Joining them together -----------------------------------------------------
-
 df.sa <- tblBAS.sa3 %>% 
   left_join(tblTB.sa3, by = "patient") %>% 
   left_join(tblLTFU.sa2, by = "patient") %>% 
@@ -321,7 +322,6 @@ df.sa <- tblBAS.sa3 %>%
          resistant_tb = as.numeric(resistant_tb),
          tb_diag_cd4 = as.numeric(tb_diag_cd4),
          DEATH_Y = as.numeric(DEATH_Y),
-         
          incident_tb = as.factor(case_when(
            date_tb >= art_start_date + 60 ~ 1,
            TRUE ~ 0)),
@@ -334,7 +334,7 @@ df.sa <- tblBAS.sa3 %>%
          fup_time = as.numeric(case_when(
            ltfu == 1 ~ drop_out - art_start_date,
            DEATH_Y == 1 ~ exitdate - art_start_date,
-           TRUE ~ pmin(as.Date("2022-12-31") - art_start_date, last_info - art_start_date))),
+           TRUE ~ as.Date("2022-12-31") - art_start_date)),
          disease_tb = ifelse(is.na(date_tb),0,1)) %>% 
   rename(id = patient,
          death = DEATH_Y) %>% 
@@ -373,7 +373,7 @@ df_art.sa <- df.sa %>%
   filter(between(art_start_date, as.Date("2017-01-01"), as.Date("2022-12-31")),
          !is.na(sex),
          !is.na(born) & !is.na(art_start_date),
-         !is.na(fup_time) & fup_time >= 0,
+         !is.na(fup_time) & fup_time > 0,
          age_at_art_start >= 16,
          age_at_art_start < 100,
          recent_tb == 0,
@@ -442,6 +442,8 @@ gt_tbl <- as_gt(tbl_merge)
 #' Person-time was calculated from ART initiation (baseline) to TB diagnosis, 
 #' death or drop-out or last follow-up information or end of study period. 
 #' Whatever came first. 
+#' 
+#' We excluded patients with negative follow up time
 
 ## Lab data --------------------------------------------------------------------
 
