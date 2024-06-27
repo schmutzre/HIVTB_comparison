@@ -8,29 +8,27 @@ library(cmprsk)
 
 ##### data preparation ---------------------------------------------------------
 
-df_surv <- readRDS("data_clean/art_noTB.rds")  %>% 
+df_surv <- readRDS("data_clean/art_noTB.rds") %>% 
   mutate(incident_tb = as.numeric(as.character(incident_tb)),
-         persontime_days = case_when(
-           incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")),
-           incident_tb == 0 ~ last_persontime),
-         persontime_years = persontime_days / 360,
-         persontime_death_days = case_when(
-           !is.na(exitdate) ~ as.numeric(difftime(exitdate, art_start_date, units = "days")),
-           is.na(exitdate) ~ last_persontime),
+         fup_days = case_when(
+           (incident_tb == 1 & date_tb < as.Date("2022-12-31")) ~ as.numeric(difftime(date_tb, art_start_date, units = "days")),
+           TRUE ~ fup_time),
+         fup_years = fup_days / 360,
          cohort = fct_relevel(cohort, "RSA")) %>% 
-  dplyr::select(id, cohort, art_start_date, incident_tb, date_tb, last_persontime, persontime_years, persontime_days, persontime_death_days, cd4_group, exitdate, last_fup_date, rna_group) %>% 
-  filter(persontime_years > 0) %>% 
   mutate(event_type = as.factor(case_when(
-    incident_tb == 1 ~ 1,
-    !is.na(exitdate) ~ 2,
-    TRUE ~ 0 ))) # Loss to fup is not considered a competing risk
+    (incident_tb == 1 & date_tb < as.Date("2022-12-31")) == 1 ~ 1,
+    death == 1 ~ 2,
+    TRUE ~ 0))) %>%  # Loss to fup is not considered a competing risk
+  dplyr::select(id, cohort, art_start_date, incident_tb, date_tb, fup_days, fup_years, cd4_group, rna_group, death, event_type) 
+  
 
 #### aalen-Johansen model [all-cause mortality as competing risk] --------------
 
 #' I use ggcuminc to plot the competing risk survival function, it is mentioned in the documention
 #' that both survfit2 (mstate) aswell as cuminc can be used to create the dataframe for plotting.
+#' I checked, the get the same results with both functions.
 
-plot_aj <- survfit2(Surv(persontime_years, 
+plot_aj <- survfit2(Surv(fup_years, 
                          event_type, 
                          type = "mstate") ~ cohort, 
                     data = df_surv) %>% 
@@ -40,10 +38,10 @@ plot_aj <- survfit2(Surv(persontime_years,
   theme(legend.position = "none") +
   labs(x = "Years after ART start",
        y = "Cumulative incidence of TB (%)") +
-  coord_cartesian(xlim = c(0,5), ylim = c(0,0.05))+
+  coord_cartesian(xlim = c(0,5), ylim = c(0,0.15))+
   scale_x_continuous(expand = c(0,0), 
                      breaks = function(limits) pretty(limits, n = 5, integer = TRUE)) +  
-  scale_y_continuous(expand = c(0,0), 
+  scale_y_sqrt(expand = c(0,0), 
                      labels = function(y) paste0(y * 100)) +  
   theme(axis.text.x = element_text(margin = margin(t = 5, r = 0, b = 0, l = 0))) +
   scale_color_manual(values = wes_palette("Moonrise2")) +
@@ -56,12 +54,10 @@ ggsave(plot = plot_aj, filename = "results/incidenceTB/aj.png",
 
 #### gray's test ---------------------------------------------------------------
 
-cif_by_group <- cmprsk::cuminc(ftime = df_surv$persontime_years, 
+cif_by_group <- cmprsk::cuminc(ftime = df_surv$fup_years, 
                        fstatus = df_surv$event_type, 
                        group = df_surv$cohort, 
                        cencode = 0)
-
-cif_by_group
 
 # plot_aj_log <- survfit2(Surv(persontime_years, event_type, type = "mstate") ~ cohort, data = kaplan) |>
 #   ggcuminc(linewidth = 0.5) +

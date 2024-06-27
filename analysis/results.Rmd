@@ -166,6 +166,8 @@ pois
 
 We did not mention these plots/comparisons in the SAP.
 
+![](images/pred_incidence.png)
+
 ![](images/bothGrouped.png)
 
 ![](images/irr_ref350.png)
@@ -176,15 +178,22 @@ We did not mention these plots/comparisons in the SAP.
 
 From SAP: "Logistic regression in order to estimate risk factors for TB."
 
+#### Switzerland
+
 ```{r}
 log.ch <- readRDS("../results/incidenceTB/tbl_log_ch.rds")
 log.ch
 ```
 
-#### South Africa 
+#### South Africa
 
 ```{r}
 log.rsa <- readRDS("../results/incidenceTB/tbl_log_rsa.rds")
 log.rsa
 ```
 
+# Secondary analysis 2
+
+From SAP: "Kaplan-Meier estimate for the survival probability accounting for competing risk (death), will be used to describe the time to incident TB over time"
+
+![](images/aj-01.png)

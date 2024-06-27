@@ -6,6 +6,9 @@ library(wesanderson)
 library(ggpubr)
 library(forcats)
 library(broom)
+library(brms)
+library(wesanderson)
+library(tidybayes)
 
 #### data preparation ----------------------------------------------------------
 
@@ -18,9 +21,10 @@ df <- readRDS("data_clean/art_noTB.rds") %>%
            incident_tb == 0 ~ fup_time/360),
          agegroup = cut(age_at_art_start, breaks = custom_breaks, labels = c("16-34","35-44", "45+"), include.lowest = TRUE),
          cohort = fct_relevel(cohort, "RSA"),
-         cd4_group = fct_relevel(cd4_group, "350+")) %>% 
+         cd4_group = fct_relevel(cd4_group, "350+"),
+         cd4_tr = sqrt(cd4_baseline)) %>% 
   filter(persontime_years >0) %>% 
-  dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, persontime_years, cd4_group, rna_group)
+  dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, persontime_years, cd4_group, rna_group, cd4_tr)
 
 df_manual <- df %>% 
   group_by(cohort) %>% 
@@ -59,6 +63,127 @@ reg_table <- glm_main %>% tbl_regression(exponentiate = TRUE,
                             label = list(cohort = "Cohort"))
 
 saveRDS(reg_table, file = "results/incidenceTB/tbl_pois.rds")
+
+### Poisson model with continuous Cd4 (bayesian) ------------------------------
+
+### complete records analysis ###
+
+miss.ch <- df %>% filter(cohort == "CH")
+
+pois.ch.miss <- brm(incident_tb ~ 1 + cd4_tr + offset(log(persontime_years)),
+           data = miss.ch,
+           family = poisson,
+           prior = c(prior(normal(0, 1), class = Intercept),
+                     prior(normal(0, 2), class = b)),
+           cores = 4,
+           seed = 1793)
+
+pred.ch.miss <- tibble(cd4_tr = seq(0, 30, length.out = 200),
+                  cd4 = cd4_tr^2,
+                  persontime_years = 1000,
+                  cohort = "CH") %>%
+  add_epred_draws(pois.ch.miss) 
+
+miss.rsa <- df %>% filter(cohort == "RSA")
+
+pois.rsa.miss <- brm(incident_tb ~ 1 + cd4_tr + offset(log(persontime_years)),
+                    data = miss.rsa,
+                    family = poisson,
+                    prior = c(prior(normal(0, 1), class = Intercept),
+                              prior(normal(0, 2), class = b)),
+                    cores = 4,
+                    seed = 1793)
+
+pred.rsa.miss <- tibble(cd4_tr = seq(0, 30, length.out = 200),
+                   cd4 = cd4_tr^2,
+                   persontime_years = 1000,
+                   cohort = "RSA") %>%
+  add_epred_draws(pois.rsa.miss) 
+
+pred.miss <- rbind(pred.ch.miss, pred.rsa.miss)
+
+plot.pred.miss <- pred.miss %>% 
+  ggplot(aes(x = cd4, y = .epred, fill = cohort)) +
+  scale_y_sqrt(expand = c(0,0), limits = c(0,100))+
+  scale_x_continuous(expand = c(0,0))+
+  stat_lineribbon(.width = .95, linewidth = 0.5) +
+  theme_bw() +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  labs(x = "CD4-level at ART start",
+       y = "TB incidence per 1,000 Person years",
+       title = "Original dataset")+
+  theme(legend.title = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+
+plot.pred.miss
+
+### using the imputed datasets ###
+
+comp.ch <- complete(ch.imp, "all") 
+
+comp.ch <- lapply(comp.ch, function(df) {
+  df$persontime_years <- miss.ch$persontime_years
+  df$incident_tb <- as.numeric(as.character(df$incident_tb))
+  return(df)
+})
+
+pois.ch.imp <- brm_multiple(incident_tb ~ 1 + bcd4_tr + offset(log(persontime_years)), 
+                         data = comp.ch, 
+                         family = poisson,
+                         prior = c(prior(normal(0, 1), class = Intercept),
+                                   prior(normal(0, 2), class = b)),
+                         cores = 4,
+                         seed = 1793)
+
+pred.ch.imp <- tibble(bcd4_tr = seq(0, 30, length.out = 200),
+       cd4 = bcd4_tr^2,
+       persontime_years = 1000,
+       cohort = "CH") %>%
+  add_epred_draws(pois.ch.imp) 
+
+comp.rsa <- complete(rsa.imp, "all") 
+
+comp.rsa <- lapply(comp.rsa, function(df) {
+  df$persontime_years <- miss.rsa$persontime_years
+  df$incident_tb <- as.numeric(as.character(df$incident_tb))
+  return(df)
+})
+
+pois.rsa.imp <- brm_multiple(incident_tb ~ 1 + bcd4_tr + offset(log(persontime_years)), 
+                               data = comp.rsa, 
+                               family = poisson,
+                               prior = c(prior(normal(0, 1), class = Intercept),
+                                         prior(normal(0, 1), class = b)),
+                               cores = 4,
+                               seed = 1793)
+
+pred.rsa.imp <- tibble(bcd4_tr = seq(0, 30, length.out = 200),
+                     cd4 = bcd4_tr^2,
+                     persontime_years = 1000,
+                     cohort = "RSA") %>%
+  add_epred_draws(pois.rsa.imp) 
+
+pred.imp <- rbind(pred.ch.imp, pred.rsa.imp)
+
+plot.pred.imp <- pred.imp %>% 
+  ggplot(aes(x = cd4, y = .epred, fill = cohort)) +
+  scale_y_sqrt(expand = c(0,0), limits = c(0,100))+
+  scale_x_continuous(expand = c(0,0))+
+  stat_lineribbon(.width = .95, linewidth = 0.5) +
+  theme_bw() +
+  scale_fill_manual(values = wes_palette("Moonrise2")) +
+  labs(x = "CD4-level at ART start",
+       y = element_blank(),
+       title = "Imputed dataset")+
+  theme(legend.title = element_blank(),
+        plot.title = element_text(hjust = 0.5))
+
+plot.pred.imp
+
+plot.pred_incidence <- ggarrange(plot.pred.miss, plot.pred.imp, ncol = 2, common.legend = TRUE)
+
+ggsave(plot = plot.pred_incidence, file = "results/incidenceTB/pred_incidence.png", 
+       width = 16, height = 11, units = "cm")
 
 #### incidence rate per cohort -----------------------------------------
 

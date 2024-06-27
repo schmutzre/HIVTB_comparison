@@ -6,6 +6,7 @@ library(tableone)
 library(mice)
 library(jtools)
 library(brglm2)
+library(gtsummary)
 
 #### data preparation ---------------------------------------------------------
 
@@ -26,7 +27,7 @@ df <- data %>%
          regio = relevel(regio, ref = "Europe/Northern America"),
          agegroup = cut(age, breaks = custom_breaks, include.lowest = TRUE),
          agegroup = as.factor(agegroup)) %>% 
-  dplyr::select(sex, age, agegroup, regio, bcd4_tr, brna_tr, who, regimen, incident_tb, cohort)
+  dplyr::select(sex, agegroup, regio, bcd4_tr, brna_tr, who, regimen, incident_tb, cohort)
 
 df_ch <- df %>% filter(cohort == "CH") %>%
   dplyr::select(-cohort) 
@@ -59,6 +60,7 @@ tbl_regCH.complete <- m1_ch |>
                               bcd4_tr = "CD4 count (sqrt)",
                               brna_tr = "RNA (log10)")) %>% 
   bold_labels()
+
 
 ### RSA ###
 
@@ -166,7 +168,7 @@ data.to.impute_rsa$incomplete <- NULL
 #' (see complete record analysis) and variables that were significantly related 
 #' to missingness in the previous analysis.
 
-K <- 20 # number of imputed datasets
+K <- 5 # number of imputed datasets
 
 ### CH ###
 
@@ -184,7 +186,7 @@ pmat_ch <- matrix(
   dimnames = list(c("sex", "agegroup", "regio", "bcd4_tr", "brna_tr", "who", "regimen", "incident_tb"),
                   c("sex", "agegroup", "regio", "bcd4_tr", "brna_tr", "who", "regimen", "incident_tb"))
 )
-data
+
 # shell imputation (for post processing)
 
 ini_ch <- mice(data = data.to.impute_ch, maxit = 0)
@@ -214,23 +216,6 @@ summary(complete(ch.imp, 0)) # with missingness, index 0
 summary(complete(ch.imp, 1)) # imputed index 1:K
 plot(ch.imp)
 
-# Applying transformations to each imputed dataset
-ch.imp2 <- lapply(1:K, function(k) {
-  dataset <- complete(ch.imp, k)
-  
-  # Mutate the bcd4_tr column to create categories
-  dataset <- dataset %>%
-    mutate(
-      bcd4_tr_category = case_when(
-        bcd4_tr^2 < 100 ~ "0-99",
-        bcd4_tr^2 < 350 ~ "100-349",
-        bcd4_tr^2 >= 350 ~ "350+"),
-      bcd4_tr_category = factor(bcd4_tr_category, levels = c("350+", "100-349", "0-99"))
-    )
-  
-  return(dataset)
-})
-
 ### RSA ###
 
 pmat_rsa <- matrix(
@@ -251,6 +236,7 @@ ini_rsa <- mice(data = data.to.impute_rsa,
                 maxit = 0)
 post_rsa <- ini_rsa$post
 post_rsa["bcd4_tr"] <- "imp[[j]][, i] <- squeeze(imp[[j]][, i], c(0, 50))"
+post_ch["bcd4_tr"] <- paste(post_ch["bcd4_tr"], "bcd4 <- imp[[j]][, i]^2; imp[[j]][, i] <- cut(bcd4, breaks = c(-Inf, 99, 349, Inf), labels = c('0-99', '100-349', '350+'))", sep = "; ")
 
 # imputation #
 
