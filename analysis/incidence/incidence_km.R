@@ -8,16 +8,16 @@ library(cmprsk)
 
 ##### data preparation ---------------------------------------------------------
 
-df_surv <- readRDS("data_clean/art_noTB.rds") %>% 
+df_surv <- readRDS("data_clean/art_noTB.rds")  %>% 
   mutate(incident_tb = as.numeric(as.character(incident_tb)),
          fup_days = case_when(
-           (incident_tb == 1 & date_tb < as.Date("2022-12-31")) ~ as.numeric(difftime(date_tb, art_start_date, units = "days")),
+           incident_tb == 1 ~ as.numeric(difftime(date_tb, art_start_date, units = "days")),
            TRUE ~ fup_time),
          fup_years = fup_days / 360,
          cohort = fct_relevel(cohort, "RSA")) %>% 
   mutate(event_type = as.factor(case_when(
-    (incident_tb == 1 & date_tb < as.Date("2022-12-31")) == 1 ~ 1,
-    death == 1 ~ 2,
+    incident_tb == 1 ~ 1,
+    death == 1 ~ 2, # only for cases that are incident = 0 (thats how case_when works)
     TRUE ~ 0))) %>%  # Loss to fup is not considered a competing risk
   dplyr::select(id, cohort, art_start_date, incident_tb, date_tb, fup_days, fup_years, cd4_group, rna_group, death, event_type) 
   
@@ -38,7 +38,7 @@ plot_aj <- survfit2(Surv(fup_years,
   theme(legend.position = "none") +
   labs(x = "Years after ART start",
        y = "Cumulative incidence of TB (%)") +
-  coord_cartesian(xlim = c(0,5), ylim = c(0,0.15))+
+  coord_cartesian(xlim = c(0,6), ylim = c(0,0.15))+
   scale_x_continuous(expand = c(0,0), 
                      breaks = function(limits) pretty(limits, n = 5, integer = TRUE)) +  
   scale_y_sqrt(expand = c(0,0), 

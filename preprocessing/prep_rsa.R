@@ -236,8 +236,8 @@ baseline_cd4 <- tblLAB_CD4 %>%
   ungroup() %>% 
   mutate(cd4_group = as.factor(
     case_when(
-      cd4_baseline >= 0 & cd4_baseline <= 99 ~ "0-99",
-      cd4_baseline >= 100 & cd4_baseline <= 349 ~ "100-349",
+      cd4_baseline >= 0 & cd4_baseline < 100 ~ "0-99",
+      cd4_baseline >= 100 & cd4_baseline < 350 ~ "100-349",
       cd4_baseline >= 350 ~ "350+",
       TRUE ~ NA
     )
@@ -259,8 +259,8 @@ baseline_rna <- tblLAB_RNA %>%
     mutate(
         rna_group = as.factor(
           case_when(
-          rna_baseline >= 0 & rna_baseline <= 999 ~ "0-999",
-          rna_baseline >= 1000 & rna_baseline <= 9999 ~ "1000-9999",
+          rna_baseline >= 0 & rna_baseline < 1000 ~ "0-999",
+          rna_baseline >= 1000 & rna_baseline < 10000 ~ "1000-9999",
           rna_baseline >= 10000 ~ "10000+",
           TRUE ~ NA
         ))) %>% 

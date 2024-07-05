@@ -66,8 +66,8 @@ pred_trend_uni <- function(model, data, N = 10000) {
   Vb <- vcov(model$gam)
   
   # Generate new data for predictions
-  pred_data <- with(data, expand.grid(time_diff = seq(min(time_diff), max(time_diff), length = 200),
-                                      cohort = levels(cohort)))
+  pred_data <- with(data, expand.grid(time_trans = seq(min(time_trans), max(time_trans), length = 200),
+                                      presenting_tb = levels(presenting_tb)))
   
   prediction_cd4 <- predict(model$gam, type = "response", se.fit = TRUE, newdata = pred_data)
   fit <- prediction_cd4$fit
@@ -91,8 +91,10 @@ pred_trend_uni <- function(model, data, N = 10000) {
                     lwrP = fit_org  - (1.96 * se.fit_org),
                     uprS = fit_org  + (crit * se.fit_org),
                     lwrS = fit_org  - (crit * se.fit_org)) %>% 
-    mutate(cohort = fct_relevel(cohort, "RSA"),
-           lwrS = if_else(lwrS < 0, 0, lwrS))
+    mutate(presenting_tb = case_when(presenting_tb == 0 ~ "Without prevalent TB",
+                                     TRUE ~ "With prevalent TB"),
+           time_org = time_trans - 60,
+           lwrS = ifelse(lwrS < 0, 0, lwrS))
   
   return(pred)
   

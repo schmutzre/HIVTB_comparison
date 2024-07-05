@@ -19,12 +19,14 @@ library(gtsummary)
 library(tidyverse)
 ```
 
+The target population includes all HIV treatment-naïve people starting ART between 2010 and 2022 (SHCS, Switzerland) and 2017 and 2022 (Western Cape, South Africa).
+
 # Table 1
 
 ```{r}
 art <- readRDS("../data_clean/art.rds")
 
-levels(art$presenting_tb) <- c("Not presenting TB", "Presenting TB")
+levels(art$presenting_tb) <- c("Not presenting with TB", "Presenting with TB")
 levels(art$cohort) <- c("Switzerland", "South Africa")
 
 art$treatment <- factor(art$treatment, levels = c("TDF + 3TC/FTC + EFV",
@@ -37,6 +39,8 @@ art$treatment <- factor(art$treatment, levels = c("TDF + 3TC/FTC + EFV",
                                                      "AZT + 3TC/FTC + LPV/r or ATV/r or DTG",
                                                      "Other"))
 
+art$incident_tb <- as.numeric(art$incident_tb)-1
+
 art %>% 
   select(`gender`, 
          `age_at_art_start`, 
@@ -46,7 +50,9 @@ art %>%
          `fup_time`,
          `treatment`,
          cohort,
-         presenting_tb) %>% 
+         presenting_tb, 
+         `death`,
+         incident_tb) %>% 
   tbl_strata(
     strata = cohort,
     .tbl_fun = ~ .x %>%
@@ -58,9 +64,12 @@ art %>%
                                who_stage = "WHO stage",
                                fup_time = "Follow-up time (days)",
                                treatment = "ART Treatment",
-                               presenting_tb = "Presenting TB")) %>%
+                               presenting_tb = "Presenting TB",
+                               incident_tb = "Incident TB",
+                               death = "Death"),
+                  digits = list(all_categorical() ~ c(0, 0))) %>%
       add_overall() %>%
-      bold_labels() 
+      bold_labels()
   )
 ```
 
@@ -166,17 +175,19 @@ pois
 
 We did not mention these plots/comparisons in the SAP.
 
-![](images/pred_incidence.png)
+![There is no big difference between the imputed/non-imputed dataset, I guess because we only imputed the Cd4 level. I used a bayesian poisson model to estimate the incidence rate modeling the continuous cd4 level as predictor (using non-informative prior). I prefer this to the categorised plot from below. Probably would use the frequentist model to stay consistent in the manuscript, just wanted to try it out.](images/pred_incidence-01.png)
 
-![](images/bothGrouped.png)
+![Same model as above (now frequentist) and using categorical cd4 levels as predictor. Based on the original dataset.](images/bothGrouped.png)
 
-![](images/irr_ref350.png)
+![IRR compared to the reference level separately per cohort. Using the original dataset.](images/irr_ref350.png)
 
 <hr style="border: 2px solid #000; margin: 20px 0;">
 
 # Secondary analysis 1
 
 From SAP: "Logistic regression in order to estimate risk factors for TB."
+
+Modeling risk factors for incident TB separately per cohort. This means we do not involve the cohort as a predictor but actually fit different models because of the availability of data (region and baseline RNA available for Switzerland but not South Africa)
 
 #### Switzerland
 
@@ -192,8 +203,66 @@ log.rsa <- readRDS("../results/incidenceTB/tbl_log_rsa.rds")
 log.rsa
 ```
 
+<hr style="border: 2px solid #000; margin: 20px 0;">
+
 # Secondary analysis 2
 
 From SAP: "Kaplan-Meier estimate for the survival probability accounting for competing risk (death), will be used to describe the time to incident TB over time"
 
-![](images/aj-01.png)
+![Aalen Johansen Estimator taking into account competing risk (death)](images/aj-03.png)
+
+<hr style="border: 2px solid #000; margin: 20px 0;">
+
+# Secondary analysis 3
+
+From SAP: "The Cox Proportional-hazards model accounting for competing risk (death) will be used to compute the hazard ratio between countries and risk factors for TB."
+
+I included the cohort as a factor here and left region (not available in RSA) and baseline RNA (too many NA) out.
+
+![](images/Screenshot%202024-07-04%20at%2010.01.55.png)
+
+<hr style="border: 2px solid #000; margin: 20px 0;">
+
+# Secondary analysis 4
+
+From SAP: "Linear mixed-effect regression with random effects for patients and fixed effects for cohorts will be used to estimate the slopes of viral load and CD4+ count separately. Nonlinear slopes will be estimated with regression splines as required. Viral load and CD4+ count are first checked for normality and transformed if necessary (commonly log10 for viral load and square root for CD4+ count is applicable)."
+
+First, let's look at data availability. The number of measurements per patient on the x axis and how many patients had this number of measurements on the y axis:
+
+**Switzerland:**
+
+![](images/histogram_lab_ch-01.png)
+
+**South Africa:**
+
+![](images/histogram_lab_rna-01.png)
+
+Compared to earlier versions I reduced the complexity of the model, basically just using a linear mixed effect model for Switzerland with $\text{time}^2$ as a predictor (CD4) and $\text{time}^3$ (RNA) and ID as a random intercept and a linear model without random intercept for South Africa. I omitted the random intercept in South Africa because there are so few observations per patient and it does not really influence the results when I look at a subset of the data.
+
+![](images/cd4_slope-03.png)
+
+![](images/rna_slope-01.png)
+
+The imputation process stayed as discussed with the Khayelithsa dataset: Using JOMO for Switzerland and using MICE for South Africa, because there, the intervist interval was so big, that it did not make sense do impute multiple timepoints.
+
+# Secondary analysis 5
+
+SAP: "Time to viral suppression from ART start"
+
+I chose the Turnbull estimator, a generalization of the Kaplan-Meier (KM) estimator, because it can handle interval-censored data typical of lab measurements. The Kaplan-Meier estimator and Aalen-Johansen estimator cannot handle this type of data.
+
+The challenge lies in estimating the time until an event, such as viral suppression or immune recovery, given that these events are only observable during lab measurements. This means the frequency of lab measurements can influence the survival curve. For instance, if a patient has lab measurements every 60 days, viral suppression might be observed after 60 days, whereas for a patient with lab measurements every 200 days, viral suppression would only be observed after 200 days.
+
+To address this issue, I used the Turnbull estimator, which accounts for the entire interval since the last lab measurement when calculating the likelihood contribution. This approach helps to mitigate the impact of varying lab measurement frequencies on the survival estimates.
+
+![Time until immun recovery (CD4 \> 350) using the turnbull estimator.](images/plot_turnbull.png)
+
+![Time until viral suppression (RNA \< 400) using the tunbull estimator.](images/plot_turnbull_rna.png)
+
+# Mortality rate for patients presenting with TB
+
+![](images/mortality_rate-01.png)
+
+![](images/mortality_survival_curve_ch-01.png)
+
+![](images/mortality_survival_curve_rsa-01.png)

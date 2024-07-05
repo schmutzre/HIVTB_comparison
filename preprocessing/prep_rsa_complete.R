@@ -202,15 +202,11 @@ tblVIS.sa2 <- tblVIS.sa %>%
   rename(patient = PATIENT,
          who_stage = WHO_STAGE) %>% 
   mutate(vis_d = as.Date(VIS_D, format = "%Y-%m-%d")) %>% 
-  left_join(tblBAS.sa %>% dplyr::select(patient, art_start_date), by = "patient")  %>% 
+  left_join(tblBAS.sa2 %>% dplyr::select(patient, art_start_date), by = "patient")  %>% 
   mutate(difference = abs(vis_d - art_start_date),
-         who_stage = as.factor(
-           case_when(
-             who_stage == 9 ~ NA,
-             TRUE ~ as.character(who_stage))),
          who_stage = as.factor(case_when(who_stage %in% c(1,2)  ~ "1/2", 
                                          who_stage %in% c(3,4) ~ "3/4",
-                                         TRUE ~ NA))) %>% 
+                                         TRUE ~ NA_character_))) %>% 
   distinct(patient, .keep_all = TRUE) %>% 
   select(patient, who_stage)
 
@@ -323,18 +319,18 @@ df.sa <- tblBAS.sa3 %>%
          tb_diag_cd4 = as.numeric(tb_diag_cd4),
          DEATH_Y = as.numeric(DEATH_Y),
          incident_tb = as.factor(case_when(
-           date_tb >= art_start_date + 60 ~ 1,
+           date_tb > art_start_date + 60 ~ 1,
            TRUE ~ 0)),
          presenting_tb = as.factor(case_when(
            date_tb <= art_start_date + 60 & date_tb >= art_start_date - 60 ~ 1,
            TRUE ~ 0)),
          recent_tb = as.factor(case_when(
-           date_tb < art_start_date - 60 & date_tb > art_start_date - 360 ~ 1,
+           date_tb < art_start_date - 60 & date_tb >= art_start_date - 360 ~ 1,
            TRUE ~ 0)),
          fup_time = as.numeric(case_when(
            ltfu == 1 ~ drop_out - art_start_date,
            DEATH_Y == 1 ~ exitdate - art_start_date,
-           TRUE ~ as.Date("2022-12-31") - art_start_date)),
+           TRUE ~ last_info - art_start_date)),
          disease_tb = ifelse(is.na(date_tb),0,1)) %>% 
   rename(id = patient,
          death = DEATH_Y) %>% 
@@ -381,7 +377,7 @@ df_art.sa <- df.sa %>%
   mutate(who_stage = as.factor(case_when(presenting_tb == 1 ~ "3/4",
                                TRUE ~ who_stage))) %>% 
   rename(gender = sex) %>% 
-  dplyr::select(-ENROL_D, -drop_out, -exitdate, -last_info)
+  dplyr::select(-drop_out, -exitdate, -last_info)
 
 saveRDS(df_art.sa, "data_clean/rsa/art_rsa.rds")
 
@@ -464,21 +460,24 @@ lab_cd4 <- tblLAB_CD4.sa2 %>%
   rename(id = patient) %>% 
   filter(id %in% df_art.sa$id)
 
+
+
 saveRDS(lab_cd4, "data_clean/rsa/cd4_rsa.rds")
-  
-lab_cd4 %>% 
-  group_by(id) %>%
-  summarise(time_point = max(timepoint)) %>% 
-  ggplot2::ggplot(aes(x = time_point)) +
-  geom_histogram() +
-  labs(x = "Number of CD4 measurements",
-       y = "Number of patients")
+
+# plot_cd4 <- lab_cd4 %>% 
+#   group_by(id) %>%
+#   summarise(time_point = max(timepoint)) %>% 
+#   ggplot2::ggplot(aes(x = time_point)) +
+#   geom_histogram() +
+#   labs(x = "Number of CD4 measurements",
+#        y = "Number of patients")
+
 
 ## rna ##
 
 lab_rna <- tblLAB_RNA.sa2 %>%
   filter(patient %in% df_art.sa$id) %>% 
-  left_join(df_art.sa %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb), by = c("patient" = "id")) %>% 
+  left_join(df_art.sa %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb, gender, age_at_art_start, rna_baseline, who_stage, regimen), by = c("patient" = "id")) %>% 
   group_by(patient) %>% 
   arrange(date_rna) %>%
   mutate(time_diff = as.numeric(date_rna - art_start_date, units = "days")) %>% 
@@ -487,14 +486,23 @@ lab_rna <- tblLAB_RNA.sa2 %>%
   ungroup() %>% 
   rename(id = patient)
 
-lab_rna %>% 
-  group_by(id) %>%
-  summarise(time_point = max(timepoint)) %>% 
-  ggplot2::ggplot(aes(x = time_point)) +
-  geom_histogram() +
-  labs(x = "Number of RNA measurements",
-       y = "Number of patients")
+#lab_rna <- readRDS("data_clean/rsa/rna_rsa.rds")
+
+# plot_rna <- lab_rna %>% 
+#   group_by(id) %>%
+#   summarise(time_point = max(timepoint)) %>% 
+#   ggplot2::ggplot(aes(x = time_point)) +
+#   geom_histogram() +
+#   labs(x = "Number of RNA measurements",
+#        y = "Number of patients")
+# 
+# ggpubr::ggarrange(plot_cd4, plot_rna, ncol = 2) %>% ggsave("results/histogram_lab_rna.png",.)
 
 saveRDS(lab_rna, "data_clean/rsa/rna_rsa.rds")
 
+lab_both <- full_join(lab_cd4, 
+                      lab_rna %>% select(id, rna, date_rna), 
+                      by=c('id'='id', 'date_cd4'='date_rna')) %>% 
+  rename(date = date_cd4)
 
+saveRDS(lab_both, "data_clean/rsa/lab_both_rsa.rds")

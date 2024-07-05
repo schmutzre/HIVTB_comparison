@@ -157,14 +157,14 @@ filteredBOTH.lab <- filteredBOTH_region %>%
 filteredBOTH.lab <- filteredBOTH.lab %>%
     mutate(
       rna_group = as.factor(case_when(
-      rna_baseline >= 0 & rna_baseline <= 999 ~ "0-999",
-      rna_baseline >= 1000 & rna_baseline <= 9999 ~ "1000-9999",
+      rna_baseline >= 0 & rna_baseline < 1000 ~ "0-999",
+      rna_baseline >= 1000 & rna_baseline < 10000 ~ "1000-9999",
       rna_baseline >= 10000 ~ "10000+",
       TRUE ~ NA
     )),
     cd4_group = as.factor(case_when(
-      cd4_baseline >= 0 & cd4_baseline <= 99 ~ "0-99",
-      cd4_baseline >= 100 & cd4_baseline <= 349 ~ "100-349",
+      cd4_baseline >= 0 & cd4_baseline < 100 ~ "0-99",
+      cd4_baseline >= 100 & cd4_baseline < 350 ~ "100-349",
       cd4_baseline >= 350 ~ "350+",
       TRUE ~ NA
     )))
@@ -236,14 +236,11 @@ filteredBOTH.tb <- filteredBOTH.who %>%
     left_join(tb_cd4_rna, by = "id")
 
 filteredBOTH.person <- filteredBOTH.tb %>%
-  left_join(admin %>% dplyr::select(id, last_fup_date, stop), by = "id") %>% 
-  mutate(fup_time = case_when(
-    !is.na(exitdate) ~ as.numeric(difftime(exitdate, art_start_date, units = "days")),
-    !is.na(stop) ~ as.numeric(min(difftime(last_fup_date, art_start_date, units = "days"),
-                                  difftime(as.Date("2022-12-31"), art_start_date, units = "days"))),
-    TRUE ~ as.numeric(difftime(as.Date("2022-12-31"), art_start_date, units = "days"))),
+  left_join(admin %>% dplyr::select(id, last_fup_date, stop, last_info_date), by = "id") %>% 
+  mutate(fup_time = as.numeric(difftime(last_info_date, art_start_date, units = "days")),
     ltfu = ifelse(is.na(exitdate) & !is.na(stop), 1, 0),
-    death = ifelse(!is.na(exitdate),1,0))
+    death = ifelse(!is.na(exitdate),1,0)) %>% 
+  dplyr::select(-last_info_date, -stop, -last_fup_date)
 
 #### Add ART-treatment ---------------------------------------------------------
 
@@ -390,7 +387,7 @@ final <- filteredBOTH.tbsite %>%
 
 lab_both <- lab.filtered %>% 
   arrange(id, labdate) %>% 
-  left_join(filteredBOTH.tbsite %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb, sex, age_at_art_start, cd4_baseline, region, who_stage, regimen), by = "id") %>% 
+  left_join(filteredBOTH.tbsite %>% dplyr::select(id, art_start_date, disease_tb, date_tb, presenting_tb, sex, age_at_art_start, cd4_baseline, rna_baseline, region, who_stage, regimen), by = "id") %>% 
   mutate(time_diff = as.numeric(labdate - art_start_date, units = "days")) %>% 
   filter(time_diff >= -60) 
   
@@ -403,7 +400,6 @@ lab_cd4 <- lab_both %>%
   ungroup() %>% 
   rename(date_cd4 = labdate) 
 
-
 lab_rna <- lab_both %>% 
   dplyr::select(-cd4) %>% 
   filter(!is.na(rna)) %>% 
@@ -411,7 +407,7 @@ lab_rna <- lab_both %>%
   arrange(labdate) %>%
   mutate(timepoint = row_number()) %>% 
   ungroup() %>% 
-  rename(date_cd4 = labdate)
+  rename(date_rna = labdate)
 
 #### Selection study population ------------------------------------------------
 
@@ -427,12 +423,12 @@ art_ch <- final %>%
          recent_tb == 0,
          fup_time >0) %>% 
   mutate(incident_tb = as.factor(case_incident_2m)) %>% 
-  dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -regdate, -cdc_group, -last_fup_date, -stop, -exitdate, -resistance_tb_mdr) %>% 
+  dplyr::select(-virus_type, -type_tb_shcs, -disease_tbc, -risk, -art_start_cd4,-eligibility_art, -case_incident_2m, -moddate, -enddate, - time_diff_ART, -time_diff_STOP, -resistance_tb, -labdate_cd4, -labdate_rna, -current_art, -regdate, -cdc_group, -exitdate, -resistance_tb_mdr) %>% 
   rename(gender = sex)
 
 saveRDS(art_ch, "data_clean/ch/art_ch.rds")
 ## ART (only not-presenting) ##
-tabyl(art_ch_noTB$cd4_group)
+
 art_ch_noTB <- art_ch %>% 
   filter(presenting_tb == 0)
 
@@ -461,10 +457,30 @@ saveRDS(lab_ch, "data_clean/ch/lab_ch.rds")
 cd4_ch <- lab_cd4 %>% 
   filter(id %in% art_ch$id)
 
+plot_cd4 <- cd4_ch %>% 
+  group_by(id) %>%
+  summarise(time_point = max(timepoint)) %>% 
+  ggplot2::ggplot(aes(x = time_point)) +
+  geom_histogram() +
+  labs(x = "Number of CD4 measurements",
+       y = "Number of patients")
+
+plot_cd4
 saveRDS(cd4_ch, "data_clean/ch/cd4_ch.rds")
 
 rna_ch <- lab_rna %>% 
   filter(id %in% art_ch$id)
+
+plot_rna <- rna_ch %>% 
+  group_by(id) %>%
+  summarise(time_point = max(timepoint)) %>% 
+  ggplot2::ggplot(aes(x = time_point)) +
+  geom_histogram() +
+  labs(x = "Number of RNA measurements",
+       y = "Number of patients")
+plot_rna
+
+ggpubr::ggarrange(plot_cd4, plot_rna) %>% ggsave("results/histogram_lab_ch.png",.)
 
 saveRDS(rna_ch, "data_clean/ch/rna_ch.rds")
 
@@ -474,4 +490,6 @@ saveRDS(rna_ch, "data_clean/ch/rna_ch.rds")
  # group_by(resistance_tb, regimen_tb_group) %>%
   #summarise(count = n()) %>%
   #mutate(proportion = round(count / sum(count),2))
+
+
 

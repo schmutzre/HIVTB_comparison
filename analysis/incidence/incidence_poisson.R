@@ -9,6 +9,8 @@ library(broom)
 library(brms)
 library(wesanderson)
 library(tidybayes)
+library(gtsummary)
+
 
 #### data preparation ----------------------------------------------------------
 
@@ -23,7 +25,6 @@ df <- readRDS("data_clean/art_noTB.rds") %>%
          cohort = fct_relevel(cohort, "RSA"),
          cd4_group = fct_relevel(cd4_group, "350+"),
          cd4_tr = sqrt(cd4_baseline)) %>% 
-  filter(persontime_years >0) %>% 
   dplyr::select(id, agegroup, cohort, art_start_date, incident_tb, date_tb, persontime_years, cd4_group, rna_group, cd4_tr)
 
 df_manual <- df %>% 
@@ -38,17 +39,17 @@ df_manual <- df %>%
 
 ### calculating manually ###
 
-a <-  df_manual %>% filter(cohort == "RSA") %>% pull(sum_incident_tb)
-b <-  df_manual %>% filter(cohort == "CH") %>% pull(sum_incident_tb)
-PT1 <- df_manual %>% filter(cohort == "RSA") %>% pull(sum_person_years)
-PT0 <- df_manual %>% filter(cohort == "CH") %>% pull(sum_person_years)
-irr <- rateratio(a, b, PT1, PT0, conf.level=0.95)
-
-df_irr <- tibble(
-  est = irr[["estimate"]],
-  lwr = irr[["conf.int"]][1],
-  uppr = irr[["conf.int"]][2],
-  cohort = "RSA")
+# a <-  df_manual %>% filter(cohort == "RSA") %>% pull(sum_incident_tb)
+# b <-  df_manual %>% filter(cohort == "CH") %>% pull(sum_incident_tb)
+# PT1 <- df_manual %>% filter(cohort == "RSA") %>% pull(sum_person_years)
+# PT0 <- df_manual %>% filter(cohort == "CH") %>% pull(sum_person_years)
+# irr <- rateratio(a, b, PT1, PT0, conf.level=0.95)
+# 
+# df_irr <- tibble(
+#   est = irr[["estimate"]],
+#   lwr = irr[["conf.int"]][1],
+#   uppr = irr[["conf.int"]][2],
+#   cohort = "RSA")
 
 ### using glm ###
 #' to check if they agree - they do!
@@ -61,7 +62,7 @@ glm_main <- glm(incident_tb ~ cohort,
 reg_table <- glm_main %>% tbl_regression(exponentiate = TRUE, 
                             add_estimate_to_reference_rows = TRUE,
                             label = list(cohort = "Cohort"))
-
+reg_table
 saveRDS(reg_table, file = "results/incidenceTB/tbl_pois.rds")
 
 ### Poisson model with continuous Cd4 (bayesian) ------------------------------
@@ -103,6 +104,7 @@ pred.rsa.miss <- tibble(cd4_tr = seq(0, 30, length.out = 200),
 pred.miss <- rbind(pred.ch.miss, pred.rsa.miss)
 
 plot.pred.miss <- pred.miss %>% 
+  mutate(cohort = fct_relevel(cohort, "RSA"))
   ggplot(aes(x = cd4, y = .epred, fill = cohort)) +
   scale_y_sqrt(expand = c(0,0), limits = c(0,100))+
   scale_x_continuous(expand = c(0,0))+
@@ -118,8 +120,7 @@ plot.pred.miss <- pred.miss %>%
 plot.pred.miss
 
 ### using the imputed datasets ###
-
-comp.ch <- complete(ch.imp, "all") 
+comp.ch <- readRDS("data_clean/imputed/ch_imp.complete.rds") 
 
 comp.ch <- lapply(comp.ch, function(df) {
   df$persontime_years <- miss.ch$persontime_years
@@ -141,7 +142,7 @@ pred.ch.imp <- tibble(bcd4_tr = seq(0, 30, length.out = 200),
        cohort = "CH") %>%
   add_epred_draws(pois.ch.imp) 
 
-comp.rsa <- complete(rsa.imp, "all") 
+comp.rsa <- readRDS("data_clean/imputed/rsa_imp.complete.rds") 
 
 comp.rsa <- lapply(comp.rsa, function(df) {
   df$persontime_years <- miss.rsa$persontime_years
@@ -149,6 +150,7 @@ comp.rsa <- lapply(comp.rsa, function(df) {
   return(df)
 })
 
+options(future.globals.maxSize = 1 * 1024 * 1024 * 1024)
 pois.rsa.imp <- brm_multiple(incident_tb ~ 1 + bcd4_tr + offset(log(persontime_years)), 
                                data = comp.rsa, 
                                family = poisson,
@@ -164,6 +166,7 @@ pred.rsa.imp <- tibble(bcd4_tr = seq(0, 30, length.out = 200),
   add_epred_draws(pois.rsa.imp) 
 
 pred.imp <- rbind(pred.ch.imp, pred.rsa.imp)
+saveRDS(pred.imp, file = "results/incidenceTB/raw_predictions_pois.rds")
 
 plot.pred.imp <- pred.imp %>% 
   ggplot(aes(x = cd4, y = .epred, fill = cohort)) +
@@ -173,7 +176,7 @@ plot.pred.imp <- pred.imp %>%
   theme_bw() +
   scale_fill_manual(values = wes_palette("Moonrise2")) +
   labs(x = "CD4-level at ART start",
-       y = element_blank(),
+       y = "TB Incidence per 1,000 person years",
        title = "Imputed dataset")+
   theme(legend.title = element_blank(),
         plot.title = element_text(hjust = 0.5))
@@ -181,9 +184,9 @@ plot.pred.imp <- pred.imp %>%
 plot.pred.imp
 
 plot.pred_incidence <- ggarrange(plot.pred.miss, plot.pred.imp, ncol = 2, common.legend = TRUE)
-
+plot.pred_incidence
 ggsave(plot = plot.pred_incidence, file = "results/incidenceTB/pred_incidence.png", 
-       width = 16, height = 11, units = "cm")
+       width = 16, height = 12, units = "cm")
 
 #### incidence rate per cohort -----------------------------------------
 
@@ -269,7 +272,7 @@ plot_rna <- df_rna %>%
 print(plot_rna)
 
 ggsave(plot = plot_rna, filename = "results/incidenceTB/rnaGrouped.png", 
-       width = 16, height = 11, units = "cm")
+       width = 16, height = 12, units = "cm")
 
 ### CD4 ###
 
@@ -377,5 +380,3 @@ combined_plot
 
 ggsave(plot = combined_plot, file = "results/incidenceTB/irr_ref350.png", 
        width = 16, height = 11, units = "cm") 
-
-
